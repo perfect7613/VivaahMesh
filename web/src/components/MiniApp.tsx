@@ -1,12 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { dict, isBase, isRtl, pickLang, registerDict, tr, type Lang } from "@/lib/i18n";
 import { BrowserSignIn } from "@/app/tg/BrowserSignIn";
 import { useInstallPrompt } from "@/app/tg/InstallPrompt";
 import { OfflinePlanView } from "@/app/tg/OfflinePlanView";
 import { offlineViewerKey, saveOfflinePlan, setOfflineViewer } from "@/lib/client/offline-plan";
-import { ApiError, api, getWebApp, useWebApp } from "@/lib/client/telegram";
+import { ApiError, api, browserAuthExpired, getWebApp, useWebApp } from "@/lib/client/telegram";
 import { CreateFlow } from "./flows/CreateFlow";
 import { JoinFlow } from "./flows/JoinFlow";
 import { Home } from "./flows/Home";
@@ -31,6 +31,13 @@ export function MiniApp() {
   const [attempt, setAttempt] = useState(0);
   const [joinedCode, setJoinedCode] = useState<string | null>(null);
   const [browserFirstName, setBrowserFirstName] = useState("");
+  const viewerRequest = useRef<AbortController | null>(null);
+  const resetBrowserSession = useCallback(() => {
+    viewerRequest.current?.abort();
+    setOfflineViewer(null);
+    setBrowserFirstName("");
+    setState({ kind: "signIn" });
+  }, []);
   const [chosenLang, setLang] = useState<Lang | null>(null);
   const lang: Lang = chosenLang ?? pickLang(webApp?.initDataUnsafe.user?.language_code);
   const firstName = webApp?.initDataUnsafe.user?.first_name ?? browserFirstName;
@@ -65,14 +72,23 @@ export function MiniApp() {
     const update = () => setOffline(!navigator.onLine);
     const initial = setTimeout(update, 0);
     const resume = () => { update(); setAttempt((value) => value + 1); };
+    const recheckViewer = () => {
+      viewerRequest.current?.abort();
+      setAttempt((value) => value + 1);
+    };
     const accountChanged = (event: StorageEvent) => {
       if (event.key !== offlineViewerKey) return;
       setState({ kind: "loading" });
-      setAttempt((value) => value + 1);
+      recheckViewer();
     };
     window.addEventListener("offline", update);
     window.addEventListener("online", resume);
     window.addEventListener("storage", accountChanged);
+    window.addEventListener(browserAuthExpired, recheckViewer);
+    window.addEventListener("focus", resume);
+    const revalidate = setInterval(() => {
+      if (document.visibilityState === "visible" && navigator.onLine) setAttempt((value) => value + 1);
+    }, 60_000);
     if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
       void navigator.serviceWorker.register("/tg-sw.js", { scope: "/tg" }).catch(() => {});
     }
@@ -81,6 +97,9 @@ export function MiniApp() {
       window.removeEventListener("offline", update);
       window.removeEventListener("online", resume);
       window.removeEventListener("storage", accountChanged);
+      window.removeEventListener(browserAuthExpired, recheckViewer);
+      window.removeEventListener("focus", resume);
+      clearInterval(revalidate);
     };
   }, []);
 
@@ -107,10 +126,11 @@ export function MiniApp() {
     const join = code === joinedCode ? null : code;
     const weddingId = params.get("wedding") ?? undefined;
 
-    let alive = true;
-    api<{ view: View | null; botUsername?: string; firstName: string; viewerId: number }>(`/api/me${weddingId ? `?wedding=${encodeURIComponent(weddingId)}` : ""}`)
+    const request = new AbortController();
+    viewerRequest.current = request;
+    api<{ view: View | null; botUsername?: string; firstName: string; viewerId: number }>(`/api/me${weddingId ? `?wedding=${encodeURIComponent(weddingId)}` : ""}`, { signal: request.signal })
       .then(({ view, botUsername: b, firstName: name, viewerId }) => {
-        if (!alive) return;
+        if (request.signal.aborted) return;
         if (!wa) {
           setOfflineViewer(viewerId);
           setBrowserFirstName(name ?? "");
@@ -127,17 +147,16 @@ export function MiniApp() {
         setState({ kind: "create" });
       })
       .catch((error) => {
-        if (!alive) return;
+        if (request.signal.aborted) return;
         if (!wa && error instanceof ApiError && error.status === 401) {
-          setOfflineViewer(null);
-          setState({ kind: "signIn" });
+          resetBrowserSession();
         } else {
           if (!wa && !navigator.onLine) setOffline(true);
           setState({ kind: "error", message: String(error.message) });
         }
       });
-    return () => { alive = false; };
-  }, [params, attempt, joinedCode]);
+    return () => request.abort();
+  }, [params, attempt, joinedCode, resetBrowserSession]);
 
   // Closing mid-onboarding loses answers, so ask first.
   useEffect(() => {
@@ -152,8 +171,7 @@ export function MiniApp() {
     try {
       const response = await fetch("/api/browser-auth", { method: "DELETE" });
       if (!response.ok) throw new Error();
-      setOfflineViewer(null);
-      setState({ kind: "signIn" });
+      resetBrowserSession();
     } catch {
       setSignOutFailed(true);
     }
@@ -211,6 +229,9 @@ export function MiniApp() {
     <>
       {installPrompt}
       {browserControls}
+      {!webApp && <p className="mx-auto max-w-md px-5 pt-2 text-right text-xs text-muted">
+        This device keeps a copy of the schedule for 24 hours. Sign out to remove it.
+      </p>}
       <Home
         view={state.view}
         setView={(view) => setState({ kind: "home", view, celebrate: null })}

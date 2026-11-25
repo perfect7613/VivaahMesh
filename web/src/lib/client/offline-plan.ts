@@ -11,6 +11,7 @@ interface ScheduleItem {
 
 export interface OfflinePlan {
   savedAt: number;
+  viewer: string;
   weddingId: string;
   title: string;
   schedule: ScheduleItem[];
@@ -23,6 +24,7 @@ export function saveOfflinePlan(view: View, schedule?: ScheduleItem[]) {
     const previous = readOfflinePlan();
     const snapshot: OfflinePlan = {
       savedAt: Date.now(),
+      viewer,
       weddingId: view.wedding.id,
       title: `${view.wedding.partnerA} & ${view.wedding.partnerB}`,
       schedule: schedule ?? (previous?.weddingId === view.wedding.id ? previous.schedule : []),
@@ -40,7 +42,7 @@ export function saveOfflinePlan(view: View, schedule?: ScheduleItem[]) {
 export function setOfflineViewer(id: number | null) {
   try {
     const viewer = id === null ? null : String(id);
-    if (localStorage.getItem(offlineViewerKey) !== viewer) clearOfflinePlan();
+    if (viewer === null || localStorage.getItem(offlineViewerKey) !== viewer) clearOfflinePlan();
     if (viewer === null) {
       localStorage.removeItem(offlineViewerKey);
       sessionStorage.removeItem(offlineViewerKey);
@@ -55,12 +57,17 @@ export function clearOfflinePlan() {
   try { localStorage.removeItem(key); } catch { /* storage can be disabled */ }
 }
 
-export function readOfflinePlan(): OfflinePlan | null {
+export function readOfflinePlan(weddingId?: string | null): OfflinePlan | null {
   try {
     const plan = JSON.parse(localStorage.getItem(key) ?? "null") as OfflinePlan | null;
     const age = plan ? Date.now() - plan.savedAt : Infinity;
-    if (plan && age >= 0 && age < lifetime) return plan;
-    clearOfflinePlan();
+    if (!plan || !Number.isFinite(age) || age < 0 || age >= lifetime || !plan.viewer || plan.viewer !== localStorage.getItem(offlineViewerKey) ||
+      typeof plan.title !== "string" || !Array.isArray(plan.schedule)) {
+      clearOfflinePlan();
+      return null;
+    }
+    if (weddingId && plan.weddingId !== weddingId) return null;
+    return plan;
   } catch { /* malformed saved data is ignored */ }
   return null;
 }

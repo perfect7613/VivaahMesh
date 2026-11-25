@@ -7,8 +7,12 @@ import { useEffect, useState } from "react";
 export function OfflinePlanView() {
   const [plan, setPlan] = useState<ReturnType<typeof readOfflinePlan>>(null);
   useEffect(() => {
-    const timer = setTimeout(() => setPlan(readOfflinePlan()), 0);
-    const accountChanged = (event: StorageEvent) => { if (event.key === offlineViewerKey) setPlan(readOfflinePlan()); };
+    function update() {
+      const params = new URLSearchParams(window.location.search);
+      setPlan(params.has("join") ? null : readOfflinePlan(params.get("wedding")));
+    }
+    const timer = setTimeout(update, 0);
+    const accountChanged = (event: StorageEvent) => { if (event.key === offlineViewerKey) update(); };
     window.addEventListener("storage", accountChanged);
     return () => {
       clearTimeout(timer);
