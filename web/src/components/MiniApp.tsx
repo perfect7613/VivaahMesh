@@ -7,6 +7,7 @@ import { CreateFlow } from "./flows/CreateFlow";
 import { JoinFlow } from "./flows/JoinFlow";
 import { Home } from "./flows/Home";
 import type { View } from "./flows/types";
+import { VivaahMark } from "./landing/BrandIcons";
 
 type State =
   | { kind: "loading" }
@@ -26,11 +27,16 @@ export function MiniApp() {
 
   useEffect(() => {
     const wa = getWebApp();
+    // Same palette as the website; Telegram's dark mode gets the matching night palette.
+    const dark = wa ? wa.colorScheme === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.dataset.scheme = dark ? "dark" : "light";
     if (wa) {
       wa.ready();
       wa.expand();
       document.documentElement.dataset.tg = "1";
-      wa.setHeaderColor?.("secondary_bg_color");
+      const paper = dark ? "#1a120d" : "#FBF6EC";
+      wa.setHeaderColor?.(paper);
+      wa.setBackgroundColor?.(paper);
     }
     // Deep-link payloads arrive as a query param (bot buttons) or start_param (t.me/bot/app?startapp=).
     const startParam = wa?.initDataUnsafe.start_param ?? "";
@@ -63,7 +69,7 @@ export function MiniApp() {
     return (
       <main className="mx-auto grid min-h-dvh max-w-md place-items-center px-6 text-center">
         <div>
-          <p className="mb-2 text-3xl">🪔</p>
+          <div className="mb-4 flex justify-center"><VivaahMark size={44} /></div>
           <p className="font-medium">
             {state.message === "unauthorized" ? "Please open VivaahMesh from Telegram (@vivaah_bot)." : "Something went wrong. Please try again."}
           </p>
@@ -89,8 +95,10 @@ export function MiniApp() {
 
 function Splash() {
   return (
-    <main className="grid min-h-dvh place-items-center">
-      <span className="animate-pulse text-4xl" aria-label="Loading">🌼</span>
+    <main className="grid min-h-dvh place-items-center" aria-label="Loading">
+      <span className="animate-pulse">
+        <VivaahMark size={56} />
+      </span>
     </main>
   );
 }

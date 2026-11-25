@@ -5,8 +5,10 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * VivaahMesh palette (see DESIGN.md). Inside Telegram the background and text
- * follow the user's theme (--tg-theme-*), and the festive colours are accents.
+ * VivaahMesh palette (see DESIGN.md), shared by the website and the Mini App:
+ * invitation stock (ivory, gold hairlines) with sindoor and marigold accents.
+ * Light by default; [data-scheme="dark"] (set from Telegram's colorScheme, or the
+ * OS outside Telegram) switches to a deep mehndi-night palette.
  */
 :root {
   --marigold: #e8a317;
@@ -15,26 +17,31 @@
   --mehendi: #4f6b2f;
   --ivory: #fbf6ec;
   --ink: #2a1f14;
+  --gold-line: #e9d9b8;
 
-  --bg: var(--tg-theme-secondary-bg-color, var(--ivory));
-  --card: var(--tg-theme-bg-color, #fffdf8);
-  --text: var(--tg-theme-text-color, var(--ink));
-  --muted: var(--tg-theme-hint-color, #85776a);
-  --line: color-mix(in oklab, var(--text) 10%, transparent);
+  --bg: var(--ivory);
+  --card: #fffdf8;
+  --text: var(--ink);
+  --muted: #85776a;
+  --body: #5a4c40;
+  --line: var(--gold-line);
   --accent: var(--marigold);
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-tg]) {
-    --bg: #17120c;
-    --card: #221a12;
-    --text: #f6efe3;
-    --muted: #a99a88;
-    --marigold-soft: #3b2c10;
-  }
+:root[data-scheme="dark"] {
+  --bg: #1a120d;
+  --card: #251a13;
+  --text: #f6efe3;
+  --muted: #a99a88;
+  --body: #d7cbb8;
+  --line: #3e2d1f;
+  --gold-line: #4a3624;
+  --marigold-soft: #3b2a10;
+  --sindoor: #e0574b;
+  --mehendi: #9bbd6b;
 }
 
 @theme inline {
@@ -48,7 +55,8 @@
   --color-sindoor: var(--sindoor);
   --color-mehendi: var(--mehendi);
   --font-sans: var(--font-noto), var(--font-deva), system-ui, sans-serif;
-  --font-display: var(--font-display-serif), var(--font-deva), Georgia, serif;
+  --color-body: var(--body);
+  --font-display: var(--font-gloock), var(--font-tiro), Georgia, serif;
   --animate-marquee: marquee var(--duration) infinite linear;
   --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
   @keyframes marquee {

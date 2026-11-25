@@ -101,6 +101,8 @@ export function useMainButton(text: string, onClick: () => void, opts: { enabled
     const mb = getWebApp()?.MainButton;
     if (!mb) return;
     mb.setText(text);
+    // Sindoor, like the website's primary button.
+    mb.setParams?.({ color: "#B3261E", text_color: "#FFFFFF" });
     if (enabled) mb.enable(); else mb.disable();
     if (loading) mb.showProgress(false); else mb.hideProgress();
     if (visible) mb.show(); else mb.hide();

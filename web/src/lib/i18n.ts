@@ -100,6 +100,18 @@ const en = {
   shared: "Shared",
   tipChat: "Tip: send any message or voice note to @vivaah_bot and it lands here.",
   openInTelegram: "Open in Telegram",
+  hello: (name: string) => `Namaste, ${name}`,
+  channels: "Where you can send things",
+  channelTelegram: "Message or voice note to @vivaah_bot",
+  channelWhatsApp: "Link your family's WhatsApp group",
+  channelHere: "You're here",
+  beta: "Beta",
+  plannerSetting: "How options are ranked",
+  strategies: {
+    preserve_family_priorities: "Family wishes first",
+    minimize_changes: "Fewest changes first",
+    lowest_confirmed_cost: "Lowest confirmed cost first",
+  } as Record<string, string>,
 } as const;
 
 type Dict = { [K in keyof typeof en]: (typeof en)[K] extends (...a: infer A) => string ? (...a: A) => string : (typeof en)[K] extends Record<string, string> ? Record<string, string> : string };
@@ -175,6 +187,14 @@ const hi: Dict = {
   shared: "साझा",
   tipChat: "सुझाव: @vivaah_bot को कोई भी संदेश या वॉइस नोट भेजें, वह यहाँ आ जाएगा।",
   openInTelegram: "Telegram में खोलें",
+  hello: (name) => `नमस्ते, ${name}`,
+  channels: "कहाँ से भेज सकते हैं",
+  channelTelegram: "@vivaah_bot को संदेश या वॉइस नोट",
+  channelWhatsApp: "अपने परिवार का WhatsApp ग्रुप जोड़ें",
+  channelHere: "आप यहीं हैं",
+  beta: "बीटा",
+  plannerSetting: "विकल्प किस क्रम में दिखते हैं",
+  strategies: { preserve_family_priorities: "पहले परिवार की इच्छाएँ", minimize_changes: "सबसे कम बदलाव पहले", lowest_confirmed_cost: "सबसे कम पक्की लागत पहले" },
 };
 
 const mr: Dict = {
@@ -248,6 +268,14 @@ const mr: Dict = {
   shared: "सामायिक",
   tipChat: "टीप: @vivaah_bot ला कोणताही मेसेज किंवा व्हॉइस नोट पाठवा, तो इथे येईल.",
   openInTelegram: "Telegram मध्ये उघडा",
+  hello: (name) => `नमस्कार, ${name}`,
+  channels: "कुठून पाठवू शकता",
+  channelTelegram: "@vivaah_bot ला मेसेज किंवा व्हॉइस नोट",
+  channelWhatsApp: "कुटुंबाचा WhatsApp ग्रुप जोडा",
+  channelHere: "तुम्ही इथेच आहात",
+  beta: "बीटा",
+  plannerSetting: "पर्याय कोणत्या क्रमाने दिसतात",
+  strategies: { preserve_family_priorities: "आधी कुटुंबाच्या इच्छा", minimize_changes: "सगळ्यात कमी बदल आधी", lowest_confirmed_cost: "सगळ्यात कमी पक्का खर्च आधी" },
 };
 
 export const dict: Record<Lang, Dict> = { en: en as unknown as Dict, hi, mr };

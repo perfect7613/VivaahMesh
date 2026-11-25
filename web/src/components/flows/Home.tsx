@@ -1,8 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { dict, pickLang, type Lang } from "@/lib/i18n";
 import { api, haptic, useBackButton, useMainButton } from "@/lib/client/telegram";
-import { Chip, FallbackButton, Field, Petals, PrivacyNote, inputClass, formatINR } from "@/components/ui";
+import { Chip, FallbackButton, Field, Petals, PrivacySwitch, inputClass, formatINR } from "@/components/ui";
+import { TelegramIcon, WhatsAppIcon } from "@/components/landing/BrandIcons";
 import { InvitationCard } from "./InvitationCard";
 import { inviteLink, shareInvite } from "./shared";
 import type { View } from "./types";
@@ -19,11 +20,14 @@ function daysUntil(date: string | null) {
 export function Home({ view, setView, botUsername, celebrate }: { view: View; setView: (v: View) => void; botUsername: string; celebrate: "created" | "joined" | null }) {
   const lang: Lang = pickLang(view.me.language);
   const t = dict[lang];
+  const on = view.flags.on;
   const [adding, setAdding] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const couple = `${view.wedding.partnerA} & ${view.wedding.partnerB}`;
   const myHousehold = view.households.find((h) => h.id === view.me.householdId);
   const other = view.households.find((h) => h.id !== view.me.householdId);
+  const famA = view.households.find((h) => h.side === "A")?.name ?? "";
+  const famB = view.households.find((h) => h.side === "B")?.name ?? "";
   const days = daysUntil(view.wedding.date);
 
   async function invite(code: string, family: string, key: string) {
@@ -49,131 +53,179 @@ export function Home({ view, setView, botUsername, celebrate }: { view: View; se
   }
 
   return (
-    <main className="mx-auto w-full max-w-md px-5 pb-16 pt-5">
-      {celebrate ? <Petals /> : null}
-      <div className="rise flex flex-col gap-5">
-        <section>
-          {celebrate ? (
-            <div className="mb-4 text-center">
-              <h1 className="font-display text-[26px] leading-tight">{celebrate === "created" ? t.createdTitle : t.welcomeTitle(view.me.displayName)}</h1>
-              {celebrate === "created" ? <p className="mt-1.5 text-[15px] text-muted">{t.createdHint}</p> : null}
-            </div>
-          ) : null}
-          <InvitationCard
-            couple={couple}
-            date={view.wedding.date}
-            city={view.wedding.city}
-            lang={lang}
-            footer={days != null ? t.daysToGo(days) : t.dateTbd}
-          />
-        </section>
+    <div className="relative min-h-dvh overflow-x-clip">
+      <div className="toran" />
+      <div aria-hidden className="pointer-events-none absolute -right-32 -top-16 size-[460px] rounded-full bg-[radial-gradient(circle,rgba(232,163,23,0.22),transparent_65%)]" />
+      {celebrate && on.onboarding_celebration ? <Petals /> : null}
 
-        {tasks.length ? (
-          <Section title={t.needsYou} accent>
-            <ul className="flex flex-col gap-2">
-              {tasks.map((task) => (
-                <li key={task.key}>
-                  <button type="button" onClick={task.action} className="pressable flex min-h-14 w-full items-center gap-3 rounded-2xl border border-marigold/50 bg-marigold-soft px-4 py-3 text-left">
-                    <span className="size-2.5 shrink-0 rounded-full bg-sindoor" aria-hidden />
-                    <span className="flex-1 font-medium">{copied === task.key ? "✓ Link copied" : task.label}</span>
-                    <span aria-hidden className="text-muted">›</span>
-                  </button>
+      <main className="relative mx-auto w-full max-w-md px-5 pb-16 pt-5">
+        <div className="rise flex flex-col gap-7">
+          <section>
+            <p className="mb-1 text-[12px] font-semibold uppercase tracking-[0.18em] text-sindoor">{myHousehold?.name}</p>
+            <h1 className="mb-5 font-display text-[30px] leading-tight">
+              {celebrate === "created" ? t.createdTitle : celebrate === "joined" ? t.welcomeTitle(view.me.displayName) : t.hello(view.me.displayName)}
+            </h1>
+            {celebrate === "created" ? <p className="-mt-3 mb-5 text-[15px] leading-relaxed text-body">{t.createdHint}</p> : null}
+            <InvitationCard
+              couple={couple}
+              date={view.wedding.date}
+              city={view.wedding.city}
+              lang={lang}
+              families={[famA, famB]}
+              footer={days != null ? t.daysToGo(days) : t.dateTbd}
+            />
+          </section>
+
+          {tasks.length ? (
+            <Section title={t.needsYou} tone="sindoor">
+              <ul className="flex flex-col gap-2.5">
+                {tasks.map((task) => (
+                  <li key={task.key}>
+                    <button
+                      type="button"
+                      onClick={task.action}
+                      className="pressable flex min-h-16 w-full items-center gap-3 rounded-3xl border border-marigold/50 bg-marigold-soft px-5 py-3 text-left shadow-[0_12px_28px_-20px_var(--marigold)]"
+                    >
+                      <span className="size-2.5 shrink-0 rounded-full bg-sindoor" aria-hidden />
+                      <span className="flex-1 text-[16px] font-medium">{copied === task.key ? "✓ Link copied" : task.label}</span>
+                      <span aria-hidden className="text-xl text-muted">›</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
+
+          <Section title={t.families}>
+            <div className="grid grid-cols-2 gap-3">
+              {view.households.map((h) => (
+                <div key={h.id} className={`flex flex-col rounded-3xl border bg-card p-4 ${h.id === view.me.householdId ? "border-marigold/50" : "border-line"}`}>
+                  <span className="mb-3 grid size-11 place-items-center rounded-full bg-marigold-soft font-display text-[20px]" aria-hidden>
+                    {h.name.slice(0, 1)}
+                  </span>
+                  <p className="font-medium leading-snug">{h.name}</p>
+                  <p className="mb-3 text-[13px] text-muted">{h.members.length ? t.joined(h.members.length) : t.waitingToJoin}</p>
+                  {h.members.length ? (
+                    <div className="mb-3 flex -space-x-2">
+                      {h.members.slice(0, 5).map((m) => (
+                        <span key={m.id} title={m.name} className="grid size-8 place-items-center rounded-full border-2 border-card bg-[#f3e6cc] text-[13px] font-semibold text-ink">
+                          {m.name.slice(0, 1).toUpperCase()}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {h.inviteCode ? (
+                    <button type="button" onClick={() => invite(h.inviteCode!, h.name, h.id)} className="pressable mt-auto min-h-10 rounded-xl border border-line text-[14px] font-medium">
+                      {copied === h.id ? "✓ Copied" : "＋ Invite"}
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            {view.me.isCouple && view.wedding.coupleCode ? (
+              <button
+                type="button"
+                onClick={() => invite(view.wedding.coupleCode!, other?.name ?? "", "partner")}
+                className="pressable mt-3 min-h-12 w-full rounded-2xl border border-dashed border-marigold/60 text-[15px] font-medium"
+              >
+                {copied === "partner" ? "✓ Link copied" : `💌 ${t.invitePartner}`}
+              </button>
+            ) : null}
+          </Section>
+
+          <Section title={t.thePlan}>
+            <ul className="overflow-hidden rounded-3xl border border-line bg-card">
+              {view.functions.map((f, i) => (
+                <li key={f.id} className={`flex items-center gap-3 px-5 py-4 ${i ? "border-t border-line" : ""}`}>
+                  <span className="grid size-10 place-items-center rounded-full bg-marigold-soft text-lg" aria-hidden>{FN_EMOJI[f.kind] ?? "🎉"}</span>
+                  <span className="flex-1 font-display text-[19px]">{f.title}</span>
+                  <span className="text-[13px] text-muted">—</span>
                 </li>
               ))}
+            </ul>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
+              {view.me.isCouple && view.wedding.guestCount ? <span>👥 {view.wedding.guestCount}</span> : null}
+              {view.me.isCouple && view.wedding.budgetInr ? <span>🔒 {formatINR(view.wedding.budgetInr)}</span> : null}
+              {/* Flagsmith remote config, shown so families know why options are ordered the way they are. */}
+              <span title={`compiler_policy ${view.flags.policy.version} · ${view.flags.source}`}>
+                ⚖️ {t.plannerSetting}: <span className="text-body">{t.strategies[view.flags.policy.strategy] ?? view.flags.policy.strategy}</span>
+              </span>
+            </div>
+          </Section>
+
+          {on.home_team_section ? (
+            <Section title={t.teamHandling}>
+              <ul className="flex flex-col gap-2 text-[15px]">
+                {[t.teamBrief, t.teamVendors].map((x) => (
+                  <li key={x} className="flex items-center gap-3 rounded-2xl border border-line bg-card px-4 py-3.5">
+                    <span className="relative flex size-2.5 shrink-0" aria-hidden>
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-mehendi opacity-50" />
+                      <span className="relative inline-flex size-2.5 rounded-full bg-mehendi" />
+                    </span>
+                    {x}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
+
+          <Section
+            title={t.priorities}
+            action={
+              <button type="button" onClick={() => setAdding(true)} className="pressable rounded-full border border-marigold/50 px-3 py-1 text-[13px] font-medium text-sindoor">
+                ＋ {t.addPriority}
+              </button>
+            }
+          >
+            {view.priorities.length ? (
+              <ul className="flex flex-col gap-2.5">
+                {view.priorities.map((p) => (
+                  <li key={p.id} className="rounded-3xl border border-line bg-card px-5 py-4">
+                    <p className="text-[16px] leading-snug">{p.kind === "note" ? p.note : t.priorityPresets[p.kind] ?? p.kind}</p>
+                    <div className="mt-2 flex items-center justify-between gap-3 text-[12.5px]">
+                      <span className="text-mehendi">
+                        {t.sharedBy(p.author, p.family)}
+                        {p.source === "telegram" ? " · Telegram" : p.source === "whatsapp" ? " · WhatsApp" : p.source === "voice" ? " · 🎙️" : ""}
+                      </span>
+                      <span className={p.visibility === "household" ? "text-mehendi" : "text-muted"}>
+                        {p.visibility === "household" ? `🔒 ${t.private}` : `👥 ${t.shared}`}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </Section>
+
+          <Section title={t.channels}>
+            <ul className="overflow-hidden rounded-3xl border border-line bg-card">
+              <Channel icon={<TelegramIcon size={22} className="text-[#229ED9]" />} label={t.channelTelegram} badge={t.channelHere} />
+              {on.whatsapp_bridge_enabled ? (
+                <Channel icon={<WhatsAppIcon size={22} className="text-[#25D366]" />} label={t.channelWhatsApp} badge={t.beta} border />
+              ) : null}
             </ul>
           </Section>
-        ) : null}
-
-        <Section title={t.families}>
-          <div className="grid grid-cols-2 gap-3">
-            {view.households.map((h) => (
-              <div key={h.id} className="flex flex-col rounded-2xl border border-line bg-card p-4">
-                <p className="font-medium leading-snug">{h.name}</p>
-                <p className="mb-3 text-[13px] text-muted">{h.members.length ? t.joined(h.members.length) : t.waitingToJoin}</p>
-                <div className="mb-3 flex -space-x-2">
-                  {h.members.slice(0, 5).map((m) => (
-                    <span key={m.id} title={m.name} className="grid size-8 place-items-center rounded-full border-2 border-card bg-marigold-soft text-[13px] font-semibold">
-                      {m.name.slice(0, 1).toUpperCase()}
-                    </span>
-                  ))}
-                </div>
-                {h.inviteCode ? (
-                  <button type="button" onClick={() => invite(h.inviteCode!, h.name, h.id)} className="pressable mt-auto min-h-10 rounded-xl border border-line text-sm font-medium">
-                    {copied === h.id ? "✓ Copied" : "＋ Invite"}
-                  </button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-          {view.me.isCouple && view.wedding.coupleCode ? (
-            <button
-              type="button"
-              onClick={() => invite(view.wedding.coupleCode!, other?.name ?? "", "partner")}
-              className="pressable mt-3 min-h-12 w-full rounded-2xl border border-dashed border-marigold/60 text-[15px] font-medium"
-            >
-              {copied === "partner" ? "✓ Link copied" : `💌 ${t.invitePartner}`}
-            </button>
-          ) : null}
-        </Section>
-
-        <Section title={t.thePlan}>
-          <ul className="overflow-hidden rounded-2xl border border-line bg-card">
-            {view.functions.map((f, i) => (
-              <li key={f.id} className={`flex items-center gap-3 px-4 py-3.5 ${i ? "border-t border-line" : ""}`}>
-                <span className="text-xl" aria-hidden>{FN_EMOJI[f.kind] ?? "🎉"}</span>
-                <span className="flex-1 font-medium">{f.title}</span>
-                <span className="text-[13px] text-muted">—</span>
-              </li>
-            ))}
-          </ul>
-          {view.me.isCouple && (view.wedding.guestCount || view.wedding.budgetInr) ? (
-            <p className="mt-2 flex flex-wrap gap-x-4 text-[13px] text-muted">
-              {view.wedding.guestCount ? <span>👥 {view.wedding.guestCount}</span> : null}
-              {view.wedding.budgetInr ? <span>🔒 {formatINR(view.wedding.budgetInr)}</span> : null}
-            </p>
-          ) : null}
-        </Section>
-
-        <Section title={t.teamHandling}>
-          <ul className="flex flex-col gap-2 text-[15px]">
-            {[t.teamBrief, t.teamVendors].map((x) => (
-              <li key={x} className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3">
-                <span className="relative flex size-2.5" aria-hidden>
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-mehendi opacity-50" />
-                  <span className="relative inline-flex size-2.5 rounded-full bg-mehendi" />
-                </span>
-                {x}
-              </li>
-            ))}
-          </ul>
-        </Section>
-
-        <Section title={t.priorities} action={<button type="button" onClick={() => setAdding(true)} className="pressable rounded-full px-3 py-1 text-sm font-medium text-marigold">＋ {t.addPriority}</button>}>
-          {view.priorities.length ? (
-            <ul className="flex flex-col gap-2">
-              {view.priorities.map((p) => (
-                <li key={p.id} className="rounded-2xl border border-line bg-card px-4 py-3">
-                  <p className="text-[15px]">{p.kind === "note" ? p.note : t.priorityPresets[p.kind] ?? p.kind}</p>
-                  <div className="mt-1.5 flex items-center justify-between text-[12px] text-muted">
-                    <span>{t.sharedBy(p.author, p.family)}{p.source !== "app" ? ` · via ${p.source}` : ""}</span>
-                    <span className={p.visibility === "household" ? "text-mehendi" : ""}>{p.visibility === "household" ? `🔒 ${t.private}` : `👥 ${t.shared}`}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <p className="mt-3 text-[13px] text-muted">{t.tipChat}</p>
-        </Section>
-      </div>
-    </main>
+        </div>
+      </main>
+    </div>
   );
 }
 
-function Section({ title, children, accent, action }: { title: string; children: React.ReactNode; accent?: boolean; action?: React.ReactNode }) {
+function Channel({ icon, label, badge, border }: { icon: ReactNode; label: string; badge: string; border?: boolean }) {
+  return (
+    <li className={`flex items-center gap-3 px-5 py-4 ${border ? "border-t border-line" : ""}`}>
+      <span className="grid size-10 place-items-center rounded-full bg-bg">{icon}</span>
+      <span className="flex-1 text-[15px]">{label}</span>
+      <span className="rounded-full bg-marigold-soft px-2.5 py-0.5 text-[12px] font-medium">{badge}</span>
+    </li>
+  );
+}
+
+function Section({ title, children, tone, action }: { title: string; children: ReactNode; tone?: "sindoor"; action?: ReactNode }) {
   return (
     <section>
-      <div className="mb-2.5 flex items-center justify-between">
-        <h2 className={`text-[13px] font-semibold uppercase tracking-[0.12em] ${accent ? "text-sindoor" : "text-muted"}`}>{title}</h2>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className={`text-[12px] font-semibold uppercase tracking-[0.18em] ${tone === "sindoor" ? "text-sindoor" : "text-muted"}`}>{title}</h2>
         {action}
       </div>
       {children}
@@ -205,27 +257,25 @@ function AddWish({ view, lang, onClose, onSaved }: { view: View; lang: Lang; onC
   useBackButton(onClose);
 
   return (
-    <main className="step-enter mx-auto w-full max-w-md px-5 pb-28 pt-6">
-      <h1 className="mb-2 font-display text-[28px] leading-tight">{t.prioritiesTitle}</h1>
-      <p className="mb-6 text-[15px] text-muted">{t.prioritiesHint}</p>
-      <div className="mb-6 flex flex-wrap gap-2.5">
-        {PRIORITY_KEYS.map((k) => (
-          <Chip key={k} selected={picked.includes(k)} onToggle={() => setPicked((xs) => (xs.includes(k) ? xs.filter((x) => x !== k) : [...xs, k]))}>
-            {t.priorityPresets[k]}
-          </Chip>
-        ))}
-      </div>
-      <Field label={t.noteLabel}>
-        <textarea className={`${inputClass} min-h-24 resize-none`} value={note} onChange={(e) => setNote(e.target.value)} placeholder={t.notePlaceholder} />
-      </Field>
-      <button type="button" onClick={() => { haptic.select(); setPriv((v) => !v); }} className="pressable flex w-full items-center justify-between py-2 text-left">
-        <PrivacyNote privateTone={priv}>{priv ? t.visibilityHousehold(family) : t.visibilityShared}</PrivacyNote>
-        <span className={`relative h-7 w-12 rounded-full transition-colors duration-200 ${priv ? "bg-mehendi" : "bg-line"}`}>
-          <span className="absolute top-1 left-1 size-5 rounded-full bg-white shadow" style={{ transform: `translateX(${priv ? 20 : 0}px)`, transition: "transform 200ms var(--ease-out)" }} />
-        </span>
-      </button>
-      <button type="button" onClick={onClose} className="mt-4 text-sm text-muted">{t.back}</button>
-      <FallbackButton text={t.addPriority} onClick={save} enabled={can} loading={saving} />
-    </main>
+    <div className="relative min-h-dvh overflow-x-clip">
+      <div className="toran" />
+      <main className="step-enter relative mx-auto w-full max-w-md px-5 pb-32 pt-6">
+        <p className="mb-2 text-[12px] font-semibold uppercase tracking-[0.18em] text-sindoor">{family}</p>
+        <h1 className="mb-3 font-display text-[32px] leading-[1.08]">{t.prioritiesTitle}</h1>
+        <p className="mb-7 text-[16px] leading-relaxed text-body">{t.prioritiesHint}</p>
+        <div className="mb-7 flex flex-wrap gap-2.5">
+          {PRIORITY_KEYS.map((k) => (
+            <Chip key={k} selected={picked.includes(k)} onToggle={() => setPicked((xs) => (xs.includes(k) ? xs.filter((x) => x !== k) : [...xs, k]))}>
+              {t.priorityPresets[k]}
+            </Chip>
+          ))}
+        </div>
+        <Field label={t.noteLabel}>
+          <textarea className={`${inputClass} min-h-28 resize-none`} value={note} onChange={(e) => setNote(e.target.value)} placeholder={t.notePlaceholder} />
+        </Field>
+        <PrivacySwitch isPrivate={priv} onToggle={() => setPriv((v) => !v)} privateLabel={t.visibilityHousehold(family)} sharedLabel={t.visibilityShared} />
+        <FallbackButton text={t.addPriority} onClick={save} enabled={can} loading={saving} />
+      </main>
+    </div>
   );
 }
