@@ -20,10 +20,12 @@ const fmt = (m: number) => `${((Math.floor(m / 60) + 11) % 12) + 1}:${String(m %
 
 /** Replays one scenario for one variant through the production evidence extractor and compiler. */
 export function runOne(s: Scenario, variant: Variant, version = "v1"): RunLog {
-  const transcript = s.answers[variant].flatMap((a, i) => [
-    { role: "agent" as const, text: i === 0 ? QUESTIONS[variant] : "Sorry, could you confirm the exact time?" },
-    { role: "user" as const, text: a },
-  ]);
+  const questions = [QUESTIONS[variant], ...(s.followUps?.[variant] ?? [])];
+  const transcript = questions.flatMap((question, i) => {
+    const answer = s.answers[variant][i];
+    if (!answer) throw new Error(`Missing scripted answer for ${s.id} (${variant}, question ${i + 1})`);
+    return [{ role: "agent" as const, text: question }, { role: "user" as const, text: answer }];
+  });
   const facts = venueEvidence({ callId: `exp-${s.id}-${variant}`, functionKind: "sangeet", channel: "samvaad_call", transcript, connected: true, originalTranscript: true, variables: s.variables[variant] });
   const final = facts.at(-1);
   const confirmed = final?.status === "confirmed" ? final.value : null;
@@ -68,7 +70,7 @@ export function report(version = "v1") {
     "|---|---|---|---|---|---|",
     ...logs.map((l) => `| ${l.scenario} | ${l.variant} | ${l.confirmed === null ? "—" : fmt(l.confirmed)} | ${l.correct ? "✓" : l.unresolved ? "open" : "✗"} | ${l.redundantQuestions} | ${l.downstream} |`),
     "",
-    "The unknown scenario has no true cutoff, so leaving it open is the right outcome.",
+    "The unknown and lawn-only scenarios have no confirmed whole-event cutoff. Leaving them open is the correct outcome. A whole-event cutoff inferred from the lawn restriction counts as an unsupported change.",
     "",
   ].join("\n");
 }
