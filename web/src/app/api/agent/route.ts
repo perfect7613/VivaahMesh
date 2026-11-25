@@ -50,6 +50,6 @@ export const POST = authed(async (req, viewer) => {
   if (body.weddingId !== undefined && typeof body.weddingId !== "string") throw new HttpError(400, "invalid_wedding");
   const me = await member(viewer.id, body.weddingId);
   if (!(await takeAgentRequest(viewer.id))) throw new HttpError(429, "agent_request_limit");
-  after(() => runAgent(me.wedding_id, "manual").catch((e) => console.error("manual agent run failed", e)));
+  after(() => runAgent(me.wedding_id, "manual").catch(() => console.error("manual agent run failed")));
   return { ok: true };
 });

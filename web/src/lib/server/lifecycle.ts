@@ -225,7 +225,7 @@ export async function lifecycleAction(tgUserId: number, weddingId: string | unde
       check(error);
       if (data === "forbidden") throw new HttpError(403, "parents_or_couple_only");
       if (data === "ok") {
-        after(() => runAgent(W, "manual").catch((e) => console.error("agent after cancellation", e)));
+        after(() => runAgent(W, "manual").catch(() => console.error("agent after cancellation")));
       }
       break;
     }

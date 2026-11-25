@@ -509,9 +509,9 @@ export async function heartbeat(limit = 10) {
   for (const channelId of [...new Set((unread ?? []).map((m) => m.channel_id))].slice(0, limit)) {
     try {
       const r = await processGroup(channelId);
-      groupOut[`group:${channelId}`] = r.status === "done" ? `done: ${r.summary.en}` : `skipped: ${r.reason}`;
-    } catch (e) {
-      groupOut[`group:${channelId}`] = `failed: ${(e as Error).message.slice(0, 120)}`;
+      groupOut[`group:${channelId}`] = r.status;
+    } catch {
+      groupOut[`group:${channelId}`] = "failed";
     }
   }
   const { data: weddings } = await s.from("weddings").select("id").order("created_at", { ascending: false }).limit(50);
@@ -533,9 +533,9 @@ export async function heartbeat(limit = 10) {
     ran++;
     try {
       const r = await runAgent(w.id, "heartbeat");
-      out[w.id] = r.status === "done" ? `done: ${r.summary.en}` : `skipped: ${r.reason}`;
-    } catch (e) {
-      out[w.id] = `failed: ${(e as Error).message.slice(0, 120)}`;
+      out[w.id] = r.status;
+    } catch {
+      out[w.id] = "failed";
     }
   }
   return { ...groupOut, ...out };
