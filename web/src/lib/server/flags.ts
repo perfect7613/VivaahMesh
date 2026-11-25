@@ -27,6 +27,8 @@ const SAFE_DEFAULTS: Record<string, { enabled: boolean; value: string | null }> 
   stage_closeout: { enabled: false, value: null },
 };
 
+const STRATEGIES: CompilerPolicy["strategy"][] = ["preserve_family_priorities", "minimize_changes", "lowest_confirmed_cost"];
+
 let client: Flagsmith | null = null;
 function flagsmith(): Flagsmith | null {
   const key = process.env.FLAGSMITH_SERVER_KEY;
@@ -88,6 +90,7 @@ export async function flagsFor(t: ViewerTraits): Promise<ResolvedFlags> {
   try {
     const raw = features.compiler_policy.value;
     if (raw) policy = { ...DEFAULT_POLICY, ...(JSON.parse(raw) as Partial<CompilerPolicy>) };
+    if (!STRATEGIES.includes(policy.strategy)) policy = DEFAULT_POLICY;
   } catch {
     /* malformed remote config: keep the default */
   }

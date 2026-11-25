@@ -5,6 +5,7 @@ import { api, haptic, useBackButton, useMainButton } from "@/lib/client/telegram
 import { Chip, FallbackButton, Field, Petals, PrivacySwitch, inputClass, formatINR } from "@/components/ui";
 import { TelegramIcon, WhatsAppIcon } from "@/components/landing/BrandIcons";
 import { InvitationCard } from "./InvitationCard";
+import { PlanCard } from "./PlanCard";
 import { inviteLink, shareInvite } from "./shared";
 import type { View } from "./types";
 
@@ -151,6 +152,10 @@ export function Home({ view, setView, botUsername, celebrate }: { view: View; se
                 ⚖️ {t.plannerSetting}: <span className="text-body">{t.strategies[view.flags.policy.strategy] ?? view.flags.policy.strategy}</span>
               </span>
             </div>
+          </Section>
+
+          <Section title={t.planCheck} tone="sindoor">
+            <PlanCard view={view} lang={lang} />
           </Section>
 
           {on.home_team_section ? (
