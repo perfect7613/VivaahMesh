@@ -24,7 +24,8 @@ begin
   perform pg_advisory_xact_lock(hashtextextended(
     attempt.wedding_id::text || ':' || attempt.function_kind || ':' || attempt.fact_kind, 0));
   newest_confirmed := p_evidence->-1->>'status' = 'confirmed';
-  source_channel := case when attempt.flags->>'channel' = 'browser' then 'browser_agent' else 'samvaad_call' end;
+  source_channel := case attempt.flags->>'channel' when 'browser' then 'browser_agent'
+    when 'rehearsal' then 'seed' else 'samvaad_call' end;
 
   -- A usable correction replaces live prior terms in this function. An unclear
   -- call can supersede its own interim answers but leaves earlier calls intact.
@@ -44,7 +45,8 @@ begin
     insert into facts(wedding_id, function_kind, kind, value, status, channel, ref, wording, supersedes)
     values (attempt.wedding_id, attempt.function_kind, attempt.fact_kind, (row->>'value')::integer,
       row->>'status', source_channel, coalesce(attempt.provider_attempt_id, attempt.id::text),
-      coalesce(row->'source'->>'wording', ''), prior_facts)
+      case when source_channel = 'seed' then '[Rehearsal] ' else '' end
+        || coalesce(row->'source'->>'wording', ''), prior_facts)
     returning id into previous_fact;
     prior_facts := array[previous_fact];
   end loop;

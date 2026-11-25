@@ -1,12 +1,13 @@
 "use client";
 import { useState } from "react";
-import { dict, type Lang } from "@/lib/i18n";
+import { tr, type Lang } from "@/lib/i18n";
 import { api, haptic, useBackButton, useMainButton } from "@/lib/client/telegram";
 import { Chip, FallbackButton, Field, PrivacyNote, Progress, Question, Screen, formatINR, formatLakh, inputClass } from "@/components/ui";
 import { LanguageStep, useSteps } from "./shared";
 import type { View } from "./types";
 
 const FUNCTIONS = [
+  { kind: "Roka", label: "Roka", emoji: "🤝" },
   { kind: "engagement", label: "Engagement", emoji: "💍" },
   { kind: "haldi", label: "Haldi", emoji: "🌼" },
   { kind: "mehendi", label: "Mehendi", emoji: "🌿" },
@@ -18,7 +19,7 @@ const GUEST_PRESETS = [100, 200, 350, 500, 800];
 const BUDGET_PRESETS = [500000, 1000000, 1500000, 2500000, 5000000];
 
 export function CreateFlow({ lang, setLang, firstName, onDone }: { lang: Lang; setLang: (l: Lang) => void; firstName: string; onDone: (v: View) => void }) {
-  const t = dict[lang];
+  const t = tr(lang);
   const TOTAL = 6;
   const { step, dir, next, back } = useSteps(TOTAL);
 
@@ -27,6 +28,14 @@ export function CreateFlow({ lang, setLang, firstName, onDone }: { lang: Lang; s
   const [date, setDate] = useState("");
   const [city, setCity] = useState("");
   const [functions, setFunctions] = useState<string[]>(["sangeet", "ceremony", "reception"]);
+  const [customFn, setCustomFn] = useState("");
+  const addCustom = () => {
+    const name = customFn.trim().slice(0, 40);
+    if (!name || functions.some((f) => f.toLowerCase() === name.toLowerCase())) return setCustomFn("");
+    haptic.select();
+    setFunctions((xs) => [...xs, name]);
+    setCustomFn("");
+  };
   const [guests, setGuests] = useState<number | null>(350);
   const [budget, setBudget] = useState<number | null>(1500000);
   const [myFamily, setMyFamily] = useState("");
@@ -110,7 +119,30 @@ export function CreateFlow({ lang, setLang, firstName, onDone }: { lang: Lang; s
                 {f.label}
               </Chip>
             ))}
+            {functions
+              .filter((f) => !FUNCTIONS.some((p) => p.kind === f))
+              .map((f) => (
+                <Chip key={f} selected onToggle={() => setFunctions((xs) => xs.filter((x) => x !== f))}>
+                  <span className="mr-1" aria-hidden>🎉</span>
+                  {f}
+                </Chip>
+              ))}
           </div>
+          <Field label={t.customFunctionLabel}>
+            <div className="flex gap-2">
+              <input
+                className={inputClass}
+                value={customFn}
+                onChange={(e) => setCustomFn(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addCustom())}
+                placeholder={t.customFunctionPlaceholder}
+                maxLength={40}
+              />
+              <button type="button" onClick={addCustom} disabled={!customFn.trim()} className="pressable shrink-0 rounded-2xl border border-marigold/60 px-4 font-medium text-sindoor disabled:opacity-40">
+                ＋
+              </button>
+            </div>
+          </Field>
         </>
       )}
 

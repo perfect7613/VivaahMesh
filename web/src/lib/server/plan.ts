@@ -54,6 +54,7 @@ async function requireMember(tgUserId: number, weddingId?: string) {
 }
 
 export interface PlanView {
+  approval: { proposalId: string; revision: number; current: boolean; by: string | null; at: string } | null;
   policy: { version: string; strategy: CompilerPolicy["strategy"]; source: string };
   snapshotRevision: number;
   activities: Activity[];
@@ -76,8 +77,22 @@ export async function planView(tgUserId: number, weddingId?: string, policyOverr
   const withdraw = (id: string, byMinute: number | undefined) =>
     enquiries.some((enquiry) => enquiry.status === "withdrawn" && enquiry.proposalId === id && enquiry.readyBy === byMinute);
   const activities = withConfirmedTimes(snap).activities;
+  const { data: approval } = await db()
+    .from("approvals")
+    .select("proposal_id, snapshot_revision, created_at, approved_by")
+    .eq("wedding_id", me.wedding_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  let approvedBy: string | null = null;
+  if (approval?.approved_by) {
+    const { data: m } = await db().from("members").select("display_name").eq("id", approval.approved_by).maybeSingle();
+    approvedBy = m?.display_name ?? null;
+  }
   return {
     policy: { version: policy.version, strategy: policy.strategy, source: flags?.source ?? "override" },
+    // The latest approval, and whether it still matches the plan the families are looking at.
+    approval: approval ? { proposalId: approval.proposal_id, revision: approval.snapshot_revision, current: approval.snapshot_revision === snap.revision, by: approvedBy, at: approval.created_at } : null,
     snapshotRevision: snap.revision,
     // Same times the compiler used (e.g. dinner moved by a confirmed dinner_start fact).
     activities,
@@ -157,5 +172,34 @@ export async function seedDemoPlan(tgUserId: number, weddingId?: string) {
   if (error) throw error;
   if (!seeded) return me.wedding_id; // already had a plan
   await logEvent(me.wedding_id, me.id, "demo_plan_seeded", {});
+  return me.wedding_id;
+}
+
+/**
+ * Issue #5. The couple approves one proposal of the plan revision they are looking at.
+ * A tap from an outdated screen (the facts changed since) is rejected with 409 stale_revision,
+ * and one revision can only ever hold one approval (unique index). Approving books nothing:
+ * vendor bookings and payments are separate, later actions.
+ */
+export async function approveProposal(tgUserId: number, input: { weddingId?: string; proposalId: string; snapshotRevision: number }) {
+  const me = await requireMember(tgUserId, input.weddingId);
+  if (!me.is_couple) throw new HttpError(403, "couple_only");
+  const view = await planView(tgUserId, me.wedding_id);
+  if (!view) throw new HttpError(404, "no_plan");
+  if (view.snapshotRevision !== Number(input.snapshotRevision)) throw new HttpError(409, "stale_revision");
+  const proposal = view.result.proposals.find((p) => p.id === input.proposalId);
+  if (!proposal) throw new HttpError(409, "unknown_proposal");
+  const functionKind = view.activities.find((a) => a.id === proposal.moves[0]?.activityId)?.functionKind ?? "wedding";
+  const { error } = await db().from("approvals").insert({
+    wedding_id: me.wedding_id,
+    function_kind: functionKind,
+    proposal_id: proposal.id,
+    proposal,
+    snapshot_revision: view.snapshotRevision,
+    policy_version: view.result.policyVersion,
+    approved_by: me.id,
+  });
+  if (error) throw error.code === "23505" ? new HttpError(409, "already_approved") : error;
+  await logEvent(me.wedding_id, me.id, "plan_approved", { proposal_id: proposal.id, revision: view.snapshotRevision, policy: view.result.policyVersion });
   return me.wedding_id;
 }

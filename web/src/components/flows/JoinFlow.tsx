@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { dict, type Lang } from "@/lib/i18n";
+import { tr, type Lang } from "@/lib/i18n";
 import { api, haptic, useBackButton, useMainButton } from "@/lib/client/telegram";
 import { Chip, FallbackButton, Field, PrivacySwitch, Progress, Question, Screen, inputClass } from "@/components/ui";
 import { LanguageStep, useSteps } from "./shared";
@@ -11,7 +11,7 @@ const ROLE_KEYS = ["parent", "grandparent", "sibling", "cousin", "relative", "fr
 const PRIORITY_KEYS = ["elders_dinner", "pure_veg", "muhurat", "dance", "accessibility", "budget_care", "music_late", "photos"];
 
 export function JoinFlow({ code, lang, setLang, firstName, onDone }: { code: string; lang: Lang; setLang: (l: Lang) => void; firstName: string; onDone: (v: View) => void }) {
-  const t = dict[lang];
+  const t = tr(lang);
   const [preview, setPreview] = useState<InvitePreview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const isCouple = preview?.kind === "couple";

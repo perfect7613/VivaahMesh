@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { inputClass } from "@/components/ui";
 import { recordVoiceClip, type VoiceRecording } from "@/lib/client/voice-recording";
-import { LANGS, type Lang } from "@/lib/i18n";
+import { isBase, LANGS, type BaseLang } from "@/lib/i18n";
 import { formatVenueTime } from "@/lib/venue-time";
 
 type View = { status: "open" | "confirmed" | "withdrawn"; artist: string; readyBy: number; functionKind: string };
@@ -67,7 +67,7 @@ const focus = "focus-visible:ring-2 focus-visible:ring-marigold focus-visible:ri
 const button = `pressable min-h-12 w-full rounded-xl border border-line px-4 py-3 font-semibold disabled:opacity-50 ${focus}`;
 
 export function MakeupReply({ token }: { token: string }) {
-  const [lang, setLang] = useState<Lang>("en");
+  const [lang, setLang] = useState<BaseLang>("en");
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<"expired" | "readFailed" | "recordFailed" | "transcribeFailed" | "saveFailed" | null>(null);
   const [confirms, setConfirms] = useState<boolean | null>(null);
@@ -191,8 +191,8 @@ export function MakeupReply({ token }: { token: string }) {
       </header>
       <label className="block space-y-1.5 font-medium">
         <span>{t.language}</span>
-        <select disabled={!!phase} value={lang} className={inputClass} onChange={(event) => setLang(event.target.value as Lang)}>
-          {LANGS.map((option) => <option key={option.code} value={option.code} lang={option.code}>{option.label}</option>)}
+        <select disabled={!!phase} value={lang} className={inputClass} onChange={(event) => setLang(event.target.value as BaseLang)}>
+          {LANGS.filter((option) => isBase(option.code)).map((option) => <option key={option.code} value={option.code} lang={option.code}>{option.label}</option>)}
         </select>
       </label>
       <section className="space-y-4 rounded-2xl border border-line bg-card p-4">

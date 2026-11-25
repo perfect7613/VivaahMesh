@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { pickLang, type Lang } from "@/lib/i18n";
+import { dict, isBase, isRtl, pickLang, registerDict, tr, type Lang } from "@/lib/i18n";
 import { api, getWebApp, useWebApp } from "@/lib/client/telegram";
 import { CreateFlow } from "./flows/CreateFlow";
 import { JoinFlow } from "./flows/JoinFlow";
@@ -24,6 +24,31 @@ export function MiniApp() {
   const lang: Lang = chosenLang ?? pickLang(webApp?.initDataUnsafe.user?.language_code);
   const firstName = webApp?.initDataUnsafe.user?.first_name ?? "";
   const [botUsername, setBotUsername] = useState("vivaah_bot");
+  // Languages beyond Marathi/Hindi/English: load the GLM-translated UI once, then re-render.
+  const [, setLoadedLangs] = useState(0);
+  const [translating, setTranslating] = useState(false);
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = isRtl(lang) ? "rtl" : "ltr";
+    if (isBase(lang) || dict[lang]) return;
+    let alive = true;
+    const show = setTimeout(() => alive && setTranslating(true), 0);
+    fetch(`/api/i18n?lang=${lang}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (j?.data) registerDict(lang, j.data);
+      })
+      .catch(() => {})
+      .finally(() => {
+        clearTimeout(show);
+        if (!alive) return;
+        setTranslating(false);
+        setLoadedLangs((n) => n + 1);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [lang]);
 
   useEffect(() => {
     const wa = getWebApp();
@@ -64,6 +89,11 @@ export function MiniApp() {
     else wa.disableClosingConfirmation?.();
   }, [state.kind]);
 
+  const toast = translating ? (
+    <div className="fixed inset-x-0 top-3 z-30 mx-auto w-fit rounded-full bg-ink px-4 py-2 text-[14px] text-bg shadow-lg" role="status">
+      {tr(lang).translating}
+    </div>
+  ) : null;
   if (state.kind === "loading") return <Splash />;
   if (state.kind === "error") {
     return (
@@ -78,10 +108,10 @@ export function MiniApp() {
     );
   }
   if (state.kind === "create") {
-    return <CreateFlow lang={lang} setLang={setLang} firstName={firstName} onDone={(view) => setState({ kind: "home", view, celebrate: "created" })} />;
+    return <>{toast}<CreateFlow lang={lang} setLang={setLang} firstName={firstName} onDone={(view) => setState({ kind: "home", view, celebrate: "created" })} /></>;
   }
   if (state.kind === "join") {
-    return <JoinFlow code={state.code} lang={lang} setLang={setLang} firstName={firstName} onDone={(view) => setState({ kind: "home", view, celebrate: "joined" })} />;
+    return <>{toast}<JoinFlow code={state.code} lang={lang} setLang={setLang} firstName={firstName} onDone={(view) => setState({ kind: "home", view, celebrate: "joined" })} /></>;
   }
   return (
     <Home
@@ -89,6 +119,7 @@ export function MiniApp() {
       setView={(view) => setState({ kind: "home", view, celebrate: null })}
       botUsername={botUsername}
       celebrate={state.celebrate}
+      initialScreen={params.get("screen") === "call" ? "call" : undefined}
     />
   );
 }

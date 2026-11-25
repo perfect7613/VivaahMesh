@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { api } from "@/lib/client/telegram";
-import { dict, type Lang } from "@/lib/i18n";
+import { base, tr, type Lang } from "@/lib/i18n";
 import { formatVenueTime } from "@/lib/venue-time";
 import { shareInvite } from "./shared";
 
@@ -59,7 +59,7 @@ export function AskMakeupArtist({ weddingId, proposalId, artist, readyBy, enquir
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
   const sending = useRef(false);
-  const t = text[lang];
+  const t = text[base(lang)];
 
   async function ask() {
     if (sending.current) return;
@@ -97,7 +97,7 @@ export function AskMakeupArtist({ weddingId, proposalId, artist, readyBy, enquir
       {failed ? <p role="alert">{t.failed}</p> : null}
       {canAsk && !replyLink ? (
         <button type="button" className={button} disabled={pending} aria-busy={pending} onClick={() => void ask()}>
-          {pending ? t.renewing : enquired?.expired ? t.renewLink : enquired ? t.getLink : dict[lang].askWhom(artist)}
+          {pending ? t.renewing : enquired?.expired ? t.renewLink : enquired ? t.getLink : tr(lang).askWhom(artist)}
         </button>
       ) : null}
       {replyLink ? (
@@ -113,7 +113,7 @@ export function AskMakeupArtist({ weddingId, proposalId, artist, readyBy, enquir
 export function MakeupReplies({ enquiries, lang }: { enquiries: MakeupEnquiryView[]; lang: Lang }) {
   const replies = enquiries.filter((enquiry) => enquiry.reply);
   if (replies.length === 0) return null;
-  const t = text[lang];
+  const t = text[base(lang)];
   return (
     <section>
       <h3 className="mb-2 text-sm font-semibold">{t.replies}</h3>

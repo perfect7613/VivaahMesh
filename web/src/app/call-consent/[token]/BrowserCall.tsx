@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AgentState, BrowserAudioInterface, ConversationAgent, InteractionType, type InteractionConfig,
 } from "sarvam-conv-ai-sdk/browser";
-import type { Lang } from "@/lib/i18n";
+import type { BaseLang } from "@/lib/i18n";
 
 export interface BrowserCallConfig {
   orgId: string;
@@ -49,8 +49,8 @@ const resultIdPattern = /^\d{8}\/[\w-]{1,128}$/;
 export function BrowserCall({ config, token, lang, spokenLanguage, functionKind, purpose, promptVariant, onResult }: {
   config: BrowserCallConfig;
   token: string;
-  lang: Lang;
-  spokenLanguage: Lang;
+  lang: BaseLang;
+  spokenLanguage: BaseLang;
   functionKind?: string;
   purpose: string;
   promptVariant?: "baseline" | "clarify_scope" | null;
