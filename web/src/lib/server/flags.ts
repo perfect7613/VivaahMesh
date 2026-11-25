@@ -104,14 +104,20 @@ export async function flagsFor(t: ViewerTraits): Promise<ResolvedFlags> {
  * Environment-wide switches (no identity): the operational kill switches that NudgeBee and the
  * on-call person flip for everyone at once. Unreachable Flagsmith → the safe default.
  */
-export async function killSwitch(name: "outbound_dialing_enabled" | "result_processing_paused"): Promise<boolean> {
+export async function killSwitch(name: "outbound_dialing_enabled" | "result_processing_paused", requireRemote = false): Promise<boolean> {
   const fs = flagsmith();
-  if (!fs) return SAFE_DEFAULTS[name].enabled;
+  // A worker must not drain the durable queue during a Flagsmith outage.
+  const fallback = (name === "result_processing_paused" && process.env.CALL_RESULT_PROCESSOR === "worker")
+    || SAFE_DEFAULTS[name].enabled;
   try {
-    return (await fs.getEnvironmentFlags()).isFeatureEnabled(name);
+    const flag = fs && (await fs.getEnvironmentFlags()).getFlag(name);
+    if (flag && !flag.isDefault) return flag.enabled;
+    if (requireRemote) throw new Error("No remote value for " + name);
+    return fallback;
   } catch (e) {
+    if (requireRemote) throw e;
     console.error("flagsmith unavailable, using safe default for", name, e);
-    return SAFE_DEFAULTS[name].enabled;
+    return fallback;
   }
 }
 

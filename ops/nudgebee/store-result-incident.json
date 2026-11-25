@@ -1,0 +1,47 @@
+{
+  "version": "v1",
+  "triggers": [
+    {
+      "type": "webhook",
+      "params": {
+        "integration_name": "vivaahmesh-result-incidents",
+        "filter": "{{ webhook_payload.event.aggregation_key == 'vivaahmesh_result_processing_stalled' and webhook_payload.event.source == 'vivaahmesh' and webhook_payload.event.subject_namespace == 'vivaahmesh' and (webhook_payload.event.finding_id | default('')) != '' and (webhook_payload.event.labels.call_id | default('')) != '' }}"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "id": "store_incident",
+      "type": "events.store",
+      "params": {
+        "event": {
+          "finding_id": "{{ Inputs.webhook_json.event.finding_id }}",
+          "aggregation_key": "{{ Inputs.webhook_json.event.aggregation_key }}",
+          "finding_type": "{{ Inputs.webhook_json.event.finding_type }}",
+          "source": "{{ Inputs.webhook_json.event.source }}",
+          "status": "{{ Inputs.webhook_json.event.status }}",
+          "priority": "{{ Inputs.webhook_json.event.priority }}",
+          "title": "{{ Inputs.webhook_json.event.title }}",
+          "description": "{{ Inputs.webhook_json.event.description }}",
+          "subject_name": "{{ Inputs.webhook_json.event.subject_name }}",
+          "subject_type": "{{ Inputs.webhook_json.event.subject_type }}",
+          "subject_namespace": "{{ Inputs.webhook_json.event.subject_namespace }}",
+          "starts_at": "{{ Inputs.webhook_json.event.starts_at }}",
+          "labels": {
+            "call_id": "{{ Inputs.webhook_json.event.labels.call_id }}",
+            "worker": "{{ Inputs.webhook_json.event.labels.worker }}",
+            "reason": "{{ Inputs.webhook_json.event.labels.reason }}"
+          },
+          "evidences": [
+            {
+              "type": "markdown",
+              "title": "Stored result",
+              "content": "{{ Inputs.webhook_json.event.description }}"
+            }
+          ]
+        },
+        "trigger_ai_analysis": true
+      }
+    }
+  ]
+}

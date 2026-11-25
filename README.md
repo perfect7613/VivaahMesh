@@ -79,7 +79,7 @@ Then open `@vivaah_bot` in Telegram and send `/start`.
 |---|---|---|
 | Sarvam AI | Samvaad outbound vendor call, Dictate, Bulbul recap, speech-to-text for voice notes | #6, #7, #8 |
 | Flagsmith | Control plane: compiler policy, stage gating, per-household rollout, caller experiment, kill switches | #4, #9 |
-| NudgeBee | Incident investigation and approval-gated recovery that flips a Flagsmith kill switch | #10 |
+| [NudgeBee](docs/result-worker.md) | Incident investigation and approval-gated recovery that flips a Flagsmith kill switch | #10 |
 
 ## AI assistance disclosure
 

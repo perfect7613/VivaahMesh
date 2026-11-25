@@ -1,6 +1,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { db } from "./supabase";
+import { reportResultIncidents } from "./result-incidents";
 import { flagsForMember, killSwitch } from "./flags";
 import { HttpError, logEvent, memberships } from "./weddings";
 import { appUrl, escapeHtml, sendWithApp } from "./telegram-bot";
@@ -238,8 +239,20 @@ export async function storeCallResult(callId: string, payload: SarvamWebhook) {
   return { call: stored, duplicate: !!call.result };
 }
 
+/** Called only after the provider result has been persisted. In worker mode the web
+ * process never applies it, so stopping the worker leaves a recoverable queue. */
+export async function dispatchStoredResult(callId: string) {
+  const outcome = process.env.CALL_RESULT_PROCESSOR === "worker"
+    ? (await killSwitch("result_processing_paused") ? "paused" : "queued")
+    : await processCallResult(callId);
+  if (outcome === "paused" && process.env.NUDGEBEE_EVENT_WEBHOOK_URL) {
+    await reportResultIncidents(callId);
+  }
+  return outcome;
+}
+
 /** Apply the original vendor turns and preserve the chain of corrections. */
-export async function processCallResult(callId: string): Promise<"applied" | "paused" | "already" | "no_result"> {
+export async function processCallResult(callId: string): Promise<"applied" | "paused" | "already" | "no_result" | "superseded"> {
   if (await killSwitch("result_processing_paused")) return "paused";
   const s = db();
   const { data: call, error } = await s.from("calls").select("*").eq("id", callId).maybeSingle();
@@ -279,11 +292,12 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
       cutoff_status: variables.cutoff_status ?? (variables.confirmed === "no" ? "unresolved" : undefined),
     },
   });
-  const { data: applied, error: applyError } = await s.rpc("apply_call_evidence", {
+  const { data: outcome, error: applyError } = await s.rpc("apply_call_evidence_ordered", {
     p_call: callId, p_evidence: facts, p_follow_ups: venueFollowUpCount({ connected, transcript }),
   });
   if (applyError) throw applyError;
-  if (!applied) return "already";
+  if (outcome === "already" || outcome === "superseded") return outcome;
+  if (outcome !== "applied") throw new Error("Unexpected call evidence outcome");
   const latest = facts.at(-1);
   let told = false;
   try {
@@ -343,5 +357,5 @@ export async function simulateRehearsalAnswer(callId: string) {
       { role: "agent", text: "So amplified music can play until 10:30 pm. Thank you!" },
     ],
   });
-  return processCallResult(callId);
+  return dispatchStoredResult(callId);
 }
