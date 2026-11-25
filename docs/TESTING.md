@@ -1,4 +1,4 @@
-# Testing VivaahMesh end to end
+# Testing VivaahMesh (MahiWay) end to end
 
 Two layers: automated live checks (5 minutes), then a hands-on run with real phones (about 20 minutes).
 
@@ -7,9 +7,9 @@ Two layers: automated live checks (5 minutes), then a hands-on run with real pho
 ```bash
 cd web
 set -a; . ./.env.local; set +a
-npx vitest run                                                  # 102 unit tests
-node scripts/e2e-live.mjs https://vivaahmesh.vercel.app         # 22 checks: families → plan → call → approval → agent
-node scripts/e2e-lifecycle.mjs https://vivaahmesh.vercel.app    # 27 checks: stages, vendors, spend, guests, RSVPs, registry
+npx vitest run                                                  # 142 unit tests
+node scripts/e2e-live.mjs https://vivaahmesh.vercel.app         # 24 checks: families → plan → call → approval → agent
+node scripts/e2e-lifecycle.mjs https://vivaahmesh.vercel.app    # 28 checks: stages, vendors, spend, guests, RSVPs, registry
 npm run experiment                                              # caller_prompt comparison → docs/caller-experiment.md
 ```
 
@@ -79,14 +79,15 @@ Flip each flag below in Flagsmith, then reopen or refresh the plan:
 
 ## 8. Planner: stages, vendors, money (Phones A and B)
 
+1. Phone A: in the family section on Home, **grant Aai access** (parents can approve vendors only after the couple grants it).
 1. Home → **Planner**. The stage is *brief*, and the Vendors tab is locked.
 2. Phone A: **Advance stage** → *sourcing*. Add "Kaka's Caterers" as **family's own**, ₹3.8 L, for all three functions.
 3. Phone B (Aai) tries to authorize it. **Expect:** locked until the stage is *booking*.
 4. Phone A: advance to *booking*.
-5. Phone B: authorize with ₹3.6 L committed, then tap "vendor accepted".
+5. Phone B: authorize the caterer at the quoted ₹3.8 L (only the couple can change the approved amount), then tap "vendor accepted".
 6. Phone A: enter an invoice of ₹3.95 L and a payment of ₹1 L. **Expect:**
-   - Spend shows planned ₹3.8 L / committed ₹3.6 L / actual ₹1 L.
-   - A red discrepancy warning for ₹35k.
+   - Spend shows planned ₹3.8 L / committed ₹3.8 L / actual ₹1 L.
+   - A red discrepancy warning for ₹15k.
    - An "Invoice from…" task owned by Aai.
 7. Phone C (cousin) opens the Planner. **Expect:** no amounts anywhere.
 8. Copy the vendor's **run sheet link** and open it in a private browser. **Expect:** only that vendor's functions and times, with no money and no family notes.

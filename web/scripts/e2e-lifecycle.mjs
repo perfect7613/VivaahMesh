@@ -47,14 +47,16 @@ try {
   r = await act(riya, { type: "authorize_vendor", vendorId: v.id });
   ok(r.status === 403, "a cousin cannot authorize a booking");
   r = await act(aai, { type: "authorize_vendor", vendorId: v.id, committedInr: 360000 });
+  ok(r.status === 403, "a parent cannot change the approved amount (couple only)");
+  r = await act(aai, { type: "authorize_vendor", vendorId: v.id });
   const va = r.json.lifecycle?.vendors?.[0];
   ok(va?.status === "authorized" && va.authorizedBy === "Aai" && !va.accepted_at && !va.paid_at, "Aai authorizes; vendor acceptance and payment still separate");
   r = await act(aai, { type: "vendor_accepted", vendorId: v.id });
   ok(r.json.lifecycle?.vendors?.[0]?.status === "accepted", "vendor accepted");
   r = await act(meera, { type: "vendor_money", vendorId: v.id, invoiceInr: 395000, paidInr: 100000 });
   const sp = r.json.lifecycle?.spend;
-  ok(sp && sp.planned === 380000 && sp.committed === 360000 && sp.actual === 100000, `spend planned/committed/actual = ${sp?.planned}/${sp?.committed}/${sp?.actual} (package counted once)`);
-  ok(sp?.discrepancies?.[0]?.diff === 35000, "invoice ₹35k above approved is flagged");
+  ok(sp && sp.planned === 380000 && sp.committed === 380000 && sp.actual === 100000, `spend planned/committed/actual = ${sp?.planned}/${sp?.committed}/${sp?.actual} (package counted once)`);
+  ok(sp?.discrepancies?.[0]?.diff === 15000, "invoice ₹15k above approved is flagged");
   const inc = r.json.lifecycle?.tasks?.find((t) => t.title.startsWith("Invoice from"));
   ok(inc?.owner === "Aai", `discrepancy has an owner (${inc?.owner}: ${inc?.title})`);
   r = await call(riya, `/api/lifecycle?wedding=${W}`);
