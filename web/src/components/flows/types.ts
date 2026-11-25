@@ -1,5 +1,7 @@
 // Client-side mirror of the server's WeddingView (src/lib/server/weddings.ts).
 export interface View {
+  /** Resolved server-side by Flagsmith for this viewer (household, language, role, stage). */
+  flags: { source: "flagsmith" | "safe_defaults"; on: Record<string, boolean>; policy: { version: string; strategy: string } };
   me: { id: string; householdId: string | null; displayName: string; language: string; isCouple: boolean; role: string };
   wedding: {
     id: string; partnerA: string; partnerB: string; date: string | null; city: string | null;

@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "./supabase";
 import type { Lang } from "@/lib/i18n";
+import { flagsFor } from "./flags";
 
 export const FUNCTION_KINDS = ["haldi", "mehendi", "sangeet", "ceremony", "reception", "engagement"] as const;
 export type FunctionKind = (typeof FUNCTION_KINDS)[number];
@@ -207,8 +208,23 @@ export async function weddingView(tgUserId: number, weddingId?: string) {
   ]);
   for (const r of [w, hs, ms, fs, ps]) if (r.error) throw r.error;
   const wedding = w.data!;
+  const mySide = ((hs.data ?? []).find((h) => h.id === me.household_id)?.side ?? null) as "A" | "B" | null;
+  const flags = await flagsFor({
+    weddingId: wedding.id,
+    memberId: me.id,
+    language: me.language,
+    householdSide: mySide,
+    role: me.role,
+    isCouple: me.is_couple,
+    weddingStage: wedding.stage,
+  });
 
   return {
+    flags: {
+      source: flags.source,
+      on: Object.fromEntries(Object.entries(flags.features).map(([k, v]) => [k, v.enabled])) as Record<string, boolean>,
+      policy: { version: flags.policy.version, strategy: flags.policy.strategy },
+    },
     me: { id: me.id, householdId: me.household_id, displayName: me.display_name, language: me.language, isCouple: me.is_couple, role: me.role },
     wedding: {
       id: wedding.id,

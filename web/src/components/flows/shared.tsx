@@ -2,6 +2,7 @@
 import { useCallback, useState } from "react";
 import { LANGS, dict, type Lang } from "@/lib/i18n";
 import { BigChoice, Question } from "@/components/ui";
+import { VivaahMark } from "@/components/landing/BrandIcons";
 
 export function useSteps(total: number, onExit?: () => void) {
   const [step, setStep] = useState(0);
@@ -23,15 +24,24 @@ export function useSteps(total: number, onExit?: () => void) {
   return { step, dir, next, back, setStep };
 }
 
+// A line in each language, so people recognise their script before reading the label.
+const SAMPLE: Record<Lang, string> = {
+  mr: "नमस्कार! चला, लग्नाची तयारी करूया.",
+  hi: "नमस्ते! चलिए, शादी की तैयारी करते हैं।",
+  en: "Hello! Let's plan the wedding.",
+};
+
 export function LanguageStep({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => void }) {
   const t = dict[lang];
   return (
     <>
-      <div className="mb-6 text-4xl" aria-hidden>🌼</div>
-      <Question title={t.chooseLanguage} hint={t.chooseLanguageHint} />
+      <div className="mb-6 flex justify-start">
+        <VivaahMark size={44} />
+      </div>
+      <Question eyebrow="VivaahMesh" title={t.chooseLanguage} hint={t.chooseLanguageHint} />
       <div className="flex flex-col gap-3">
         {LANGS.map((l) => (
-          <BigChoice key={l.code} selected={lang === l.code} onClick={() => setLang(l.code)} title={l.label} subtitle={l.hint} />
+          <BigChoice key={l.code} selected={lang === l.code} onClick={() => setLang(l.code)} title={l.label} sample={SAMPLE[l.code]} subtitle={l.code === "en" ? undefined : l.hint} />
         ))}
       </div>
     </>

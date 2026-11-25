@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { dict, type Lang } from "@/lib/i18n";
 import { api, haptic, useBackButton, useMainButton } from "@/lib/client/telegram";
-import { Chip, FallbackButton, Field, PrivacyNote, Progress, Question, Screen, inputClass } from "@/components/ui";
+import { Chip, FallbackButton, Field, PrivacySwitch, Progress, Question, Screen, inputClass } from "@/components/ui";
 import { LanguageStep, useSteps } from "./shared";
 import { InvitationCard } from "./InvitationCard";
 import type { InvitePreview, View } from "./types";
@@ -114,22 +114,12 @@ export function JoinFlow({ code, lang, setLang, firstName, onDone }: { code: str
           <Field label={t.noteLabel}>
             <textarea className={`${inputClass} min-h-24 resize-none`} value={note} onChange={(e) => setNote(e.target.value)} placeholder={t.notePlaceholder} />
           </Field>
-          <button
-            type="button"
-            onClick={() => {
-              haptic.select();
-              setPrivateToFamily((v) => !v);
-            }}
-            className="pressable -mx-1 flex w-full items-center justify-between rounded-2xl px-1 py-2 text-left"
-          >
-            <PrivacyNote privateTone={privateToFamily}>{privateToFamily ? t.visibilityHousehold(family) : t.visibilityShared}</PrivacyNote>
-            <span className={`relative h-7 w-12 rounded-full transition-colors duration-200 ${privateToFamily ? "bg-mehendi" : "bg-line"}`}>
-              <span
-                className="absolute top-1 left-1 size-5 rounded-full bg-white shadow"
-                style={{ transform: `translateX(${privateToFamily ? 20 : 0}px)`, transition: "transform 200ms var(--ease-out)" }}
-              />
-            </span>
-          </button>
+          <PrivacySwitch
+            isPrivate={privateToFamily}
+            onToggle={() => setPrivateToFamily((v) => !v)}
+            privateLabel={t.visibilityHousehold(family)}
+            sharedLabel={t.visibilityShared}
+          />
           {error ? <p className="mt-2 text-sm text-sindoor">{error}</p> : null}
         </>
       )}

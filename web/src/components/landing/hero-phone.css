@@ -1,0 +1,131 @@
+/* VivaahMesh hero: the Stageshow Telegram study, recoloured for a wedding and
+   given one satellite (the shared plan). Stage is 520 × 470. */
+.tg.vm-hero {
+  /* The phone runs off the stage's top; the crop fades rather than cuts. */
+  &.ss-fit,
+  .ss-stage {
+    background: transparent !important;
+    overflow: hidden;
+    mask-image: linear-gradient(to bottom, transparent 0, #000 90px);
+  }
+
+  /* 340 wide is 715 tall. 40px from the bottom of a 470 stage, so 285 runs off the top:
+     the newest messages and the composer are the story. */
+  .vm-phone.tg-phone {
+    top: -285px;
+    left: 44px;
+    /* Small enough to stay inside the stage: the crop mask would cut a bigger one into a visible box. */
+    filter: drop-shadow(0 16px 20px rgba(90, 30, 10, 0.2));
+  }
+
+  /* Wedding wallpaper: haldi to marigold instead of Telegram's default green. */
+  .ss-phone__screen {
+    background:
+      radial-gradient(60% 45% at 12% 8%, #fbe7b0 0%, transparent 70%),
+      radial-gradient(70% 50% at 92% 30%, #f3c46b 0%, transparent 70%),
+      radial-gradient(70% 50% at 10% 70%, #f0b25a 0%, transparent 70%),
+      radial-gradient(70% 45% at 90% 96%, #f8dc9a 0%, transparent 70%),
+      #f1c97e;
+  }
+  .tg-paper {
+    opacity: 0.1;
+  }
+
+  .vm-bot {
+    display: flex;
+    flex-direction: column;
+  }
+  /* Telegram's inline keyboard button sits under the message. */
+  .vm-inline-btn {
+    display: block;
+    margin: 8px -6px -4px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(62, 136, 247, 0.1);
+    color: var(--tg-blue);
+    font-weight: 600;
+    font-size: 15px;
+    text-align: center;
+  }
+
+  /* ---- Satellite: the shared plan, half over the phone's right edge ---- */
+  .vm-plan {
+    position: absolute;
+    left: 300px;
+    top: 160px;
+    width: 206px;
+    padding: 16px 16px 10px;
+    border-radius: 18px;
+    background: #fffdf8;
+    border: 1px solid rgba(232, 163, 23, 0.45);
+    box-shadow: 0 24px 48px -18px rgba(120, 40, 10, 0.35), 0 2px 6px rgba(120, 40, 10, 0.08);
+    color: #2a1f14;
+    font-family: var(--font-sans);
+  }
+  .vm-plan__eyebrow {
+    margin: 0 0 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #b3261e;
+  }
+  .vm-plan ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .vm-plan li {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 8px;
+    padding: 8px 0;
+    border-top: 1px solid rgba(42, 31, 20, 0.08);
+    font-size: 14px;
+    line-height: 1.3;
+  }
+  .vm-plan li:first-child {
+    border-top: 0;
+  }
+  .vm-plan__time {
+    font-variant-numeric: tabular-nums;
+    color: #85776a;
+  }
+  .vm-plan__who {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    color: #4f6b2f;
+  }
+  /* The new line arrives by opening its own height, carrying the row below with it. */
+  .vm-plan__new {
+    display: grid;
+    max-height: 0;
+    margin-inline: -16px;
+    padding-inline: 16px;
+    padding-block: 0 !important;
+    opacity: 0;
+    overflow: hidden;
+    border-top-color: transparent !important;
+    transition:
+      max-height 420ms cubic-bezier(0.23, 1, 0.32, 1),
+      padding 420ms cubic-bezier(0.23, 1, 0.32, 1),
+      opacity 260ms ease 120ms,
+      background-color 900ms ease 300ms;
+  }
+  .vm-plan__new[data-on] {
+    max-height: 64px;
+    padding-block: 8px !important;
+    opacity: 1;
+    border-top-color: rgba(42, 31, 20, 0.08) !important;
+    background: linear-gradient(90deg, rgba(232, 163, 23, 0.16), transparent);
+    margin-inline: -16px;
+    padding-inline: 16px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vm-plan__new {
+      transition: opacity 200ms ease;
+    }
+  }
+}

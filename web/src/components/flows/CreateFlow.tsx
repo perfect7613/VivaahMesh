@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { dict, type Lang } from "@/lib/i18n";
 import { api, haptic, useBackButton, useMainButton } from "@/lib/client/telegram";
-import { Chip, FallbackButton, Field, PrivacyNote, Progress, Question, Screen, formatINR, inputClass } from "@/components/ui";
+import { Chip, FallbackButton, Field, PrivacyNote, Progress, Question, Screen, formatINR, formatLakh, inputClass } from "@/components/ui";
 import { LanguageStep, useSteps } from "./shared";
 import type { View } from "./types";
 
@@ -77,7 +77,7 @@ export function CreateFlow({ lang, setLang, firstName, onDone }: { lang: Lang; s
           <Field label={t.partnerA}>
             <input className={inputClass} value={partnerA} onChange={(e) => setPartnerA(e.target.value)} placeholder="Meera" autoComplete="off" />
           </Field>
-          <div className="my-1 text-center font-display text-2xl text-marigold" aria-hidden>&amp;</div>
+          <div className="-mt-1 mb-3 text-center font-display text-[28px] italic text-sindoor" aria-hidden>&amp;</div>
           <Field label={t.partnerB}>
             <input className={inputClass} value={partnerB} onChange={(e) => setPartnerB(e.target.value)} placeholder="Aarav" autoComplete="off" />
           </Field>
@@ -136,7 +136,7 @@ export function CreateFlow({ lang, setLang, firstName, onDone }: { lang: Lang; s
             <div className="mb-3 flex flex-wrap gap-2">
               {BUDGET_PRESETS.map((b) => (
                 <Chip key={b} selected={budget === b} onToggle={() => setBudget(b)}>
-                  {b >= 100000 ? `₹${b / 100000}L` : formatINR(b)}
+                  {formatLakh(b)}
                 </Chip>
               ))}
             </div>
