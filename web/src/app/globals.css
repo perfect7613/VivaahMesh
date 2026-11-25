@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+/*
+ * VivaahMesh palette (see DESIGN.md). Inside Telegram the background and text
+ * follow the user's theme (--tg-theme-*), and the festive colours are accents.
+ */
+:root {
+  --marigold: #e8a317;
+  --marigold-soft: #fbeccb;
+  --sindoor: #b3261e;
+  --mehendi: #4f6b2f;
+  --ivory: #fbf6ec;
+  --ink: #2a1f14;
+
+  --bg: var(--tg-theme-secondary-bg-color, var(--ivory));
+  --card: var(--tg-theme-bg-color, #fffdf8);
+  --text: var(--tg-theme-text-color, var(--ink));
+  --muted: var(--tg-theme-hint-color, #85776a);
+  --line: color-mix(in oklab, var(--text) 10%, transparent);
+  --accent: var(--marigold);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tg]) {
+    --bg: #17120c;
+    --card: #221a12;
+    --text: #f6efe3;
+    --muted: #a99a88;
+    --marigold-soft: #3b2c10;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-marigold: var(--marigold);
+  --color-marigold-soft: var(--marigold-soft);
+  --color-sindoor: var(--sindoor);
+  --color-mehendi: var(--mehendi);
+  --font-sans: var(--font-noto), var(--font-deva), system-ui, sans-serif;
+  --font-display: var(--font-display-serif), var(--font-deva), Georgia, serif;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+body {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* Press feedback: every pressable thing confirms it heard you. */
+.pressable {
+  transition: transform 140ms var(--ease-out), background-color 160ms ease, border-color 160ms ease, opacity 160ms ease;
+}
+.pressable:active {
+  transform: scale(0.97);
+}
+
+/* Step transitions give a sense of place. Enter from the right, settle fast. */
+.step-enter {
+  animation: step-in 240ms var(--ease-out) both;
+}
+.step-enter[data-dir="back"] {
+  animation-name: step-in-back;
+}
+@keyframes step-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes step-in-back {
+  from { opacity: 0; transform: translateX(-24px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Staggered card entrance for the home screen (rare: first open). */
+.rise > * {
+  animation: rise 320ms var(--ease-out) both;
+}
+.rise > *:nth-child(2) { animation-delay: 40ms; }
+.rise > *:nth-child(3) { animation-delay: 80ms; }
+.rise > *:nth-child(4) { animation-delay: 120ms; }
+.rise > *:nth-child(5) { animation-delay: 160ms; }
+.rise > *:nth-child(6) { animation-delay: 200ms; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Celebration: marigold petals, used only when a wedding is created or a family joins. */
+.petal {
+  position: absolute;
+  top: -12px;
+  width: 10px;
+  height: 14px;
+  border-radius: 60% 60% 60% 0;
+  background: var(--marigold);
+  opacity: 0;
+  animation: petal-fall 1600ms var(--ease-out) forwards;
+}
+@keyframes petal-fall {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) rotate(0deg); }
+  10% { opacity: 1; }
+  100% { opacity: 0; transform: translate3d(var(--dx), 70vh, 0) rotate(var(--rot)); }
+}
+
+.toran {
+  background-image: radial-gradient(circle at 10px -2px, var(--marigold) 7px, transparent 8px),
+    radial-gradient(circle at 10px -2px, var(--sindoor) 4px, transparent 5px);
+  background-size: 20px 12px;
+  background-repeat: repeat-x;
+  height: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-enter,
+  .rise > * {
+    animation: fade 200ms ease both;
+  }
+  .petal { display: none; }
+  .pressable:active { transform: none; }
+}
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+input,
+textarea {
+  font-size: 17px; /* stops iOS zooming into inputs */
+}
