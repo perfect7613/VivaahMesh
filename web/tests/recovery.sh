@@ -4,6 +4,18 @@
 set -euo pipefail
 
 web_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+migrations=("$web_dir"/../supabase/migrations/*.sql)
+previous_version=""
+for migration in "${migrations[@]}"; do
+  filename=${migration##*/}
+  version=${filename%%_*}
+  if [[ "$version" == "$previous_version" ]]; then
+    printf 'Duplicate Supabase migration version %s (%s)\n' "$version" "$filename" >&2
+    exit 1
+  fi
+  previous_version=$version
+done
+
 work=$(mktemp -d "${TMPDIR:-/tmp}/vivaahmesh-recovery.XXXXXX")
 jwt_secret="disposable-local-recovery-fixture-key"
 api_pid=""
@@ -30,7 +42,7 @@ grant anon, service_role to postgres;
 alter default privileges in schema public grant all on tables to service_role;
 alter default privileges in schema public grant execute on functions to service_role;
 SQL
-for migration in "$web_dir"/../supabase/migrations/*.sql; do
+for migration in "${migrations[@]}"; do
   sql -q < "$migration"
 done
 for fixture in "$web_dir"/tests/fixtures/*.sql "$web_dir"/../supabase/tests/*.sql; do
