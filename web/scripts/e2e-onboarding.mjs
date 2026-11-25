@@ -56,12 +56,18 @@ r = await call(aai, "/api/join", { code: patil.inviteCode, displayName: "Aai", r
 ok(r.status === 200 && r.json.view.me.role === "parent", "Aai joins Patil family");
 ok(r.json.view.wedding.budgetInr === null, "Aai (not couple) does NOT see budget");
 ok(r.json.view.households.find((h) => h.side === "B").inviteCode === null, "Aai cannot see Deshmukh invite code");
+ok(r.json.view.flags?.on.voice_recap_bulbul === true && r.json.view.flags?.on.whatsapp_bridge_enabled === true, "Aai (Marathi, Household A): segments turn on Bulbul recap + WhatsApp bridge");
 
 r = await call(riya, "/api/join", { code: deshmukh.inviteCode, displayName: "Riya", role: "cousin", language: "hi", priorities: ["dance", "pure_veg"], visibility: "shared" });
 ok(r.status === 200, "Riya joins Deshmukh family");
 const riyaView = r.json.view;
 ok(!riyaView.priorities.some((p) => p.note === "आजीसाठी जेवण ८:३० ला"), "Patil-private note hidden from Deshmukh family");
 ok(riyaView.priorities.some((p) => p.kind === "dance" && p.author === "Riya" && p.family === "Deshmukh family"), "shared priority attributed to Riya · Deshmukh family");
+
+// Flagsmith: evaluated per viewer from traits (segments: marathi_speakers, household_a).
+ok(riyaView.flags?.source === "flagsmith", `flags come from Flagsmith (got ${riyaView.flags?.source})`);
+ok(riyaView.flags?.on.voice_recap_bulbul === false && riyaView.flags?.on.whatsapp_bridge_enabled === false, "Riya (Hindi, Household B): Bulbul recap and WhatsApp bridge off");
+ok(riyaView.flags?.policy.strategy === "preserve_family_priorities", "compiler_policy remote config resolved");
 
 r = await call(aai, "/api/me");
 ok(r.json.view.priorities.some((p) => p.note === "आजीसाठी जेवण ८:३० ला" && p.visibility === "household"), "Aai still sees her private note");
