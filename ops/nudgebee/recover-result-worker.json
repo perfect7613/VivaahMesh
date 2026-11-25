@@ -92,6 +92,32 @@
         },
         "body": "{\"callId\":{{ Inputs.event.labels.call_id | to_json }}}"
       }
+    },
+    {
+      "id": "resolve_incident",
+      "type": "events.store",
+      "depends_on": [
+        "replay_saved_call"
+      ],
+      "if": "{{ Tasks['approve_recovery'].output.status == 'approve' and Tasks['replay_saved_call'].output.status_code == 200 }}",
+      "params": {
+        "trigger_ai_analysis": false,
+        "trigger_notification_im": false,
+        "event": {
+          "finding_id": "{{ Inputs.event.labels.provider_result_id }}",
+          "fingerprint": "{{ Inputs.event.labels.provider_result_id }}",
+          "aggregation_key": "vivaahmesh_result_processing_stalled",
+          "finding_type": "pending_call_result",
+          "source": "vivaahmesh",
+          "subject_name": "vivaahmesh-result-worker",
+          "subject_type": "Deployment",
+          "subject_namespace": "vivaahmesh",
+          "status": "RESOLVED",
+          "priority": "INFO",
+          "title": "Saved vendor answer processed",
+          "description": "The approved workflow verified the worker rollout and the targeted replay succeeded."
+        }
+      }
     }
   ],
   "timeout": "45m"

@@ -4,7 +4,7 @@ The Azure worker reads the same stored call results, feature switch and evidence
 
 ## Deploy to the existing cluster
 
-1. Apply the repository's Supabase migrations to the target environment before deploying the matching app and worker. Some voice migrations precede the family-groups migration by timestamp. For an existing Supabase project, review `supabase db push --dry-run --include-all` and apply the listed pending migrations to that project. The worker needs the same Supabase project and Flagsmith environment as the web app.
+1. Apply the repository's Supabase migrations to the target environment before deploying the matching app and worker. The worker needs the same Supabase project and Flagsmith environment as the web app.
 2. Build the worker image in Azure Container Registry from the repository root at the release commit. In Azure Cloud Shell, set `ACR_NAME` to your registry name and `AKS_CONTEXT` to the kubeconfig context for the NudgeBee-monitored Azure cluster. The account used by that cluster must be able to pull from the registry.
 
    ```sh

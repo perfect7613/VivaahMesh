@@ -156,6 +156,11 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
             ) : null}
           </Section>
 
+          {/* Issue #3: conflicts and ranked proposals from the wedding compiler. */}
+          <Section title={t.planCheck}>
+            <PlanCard view={view} lang={lang} />
+          </Section>
+
           <Section title={t.thePlan}>
             <ul className="overflow-hidden rounded-3xl border border-line bg-card">
               {view.functions.map((f, i) => {

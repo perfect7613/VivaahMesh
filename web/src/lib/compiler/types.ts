@@ -58,11 +58,18 @@ export const DEFAULT_POLICY: CompilerPolicy = {
   allowDanceDuringDinner: false,
 };
 
+export interface MakeupOption {
+  functionKind: string;
+  proposalId: string;
+  readyBy: Minute;
+}
+
 export interface Snapshot {
   weddingId: string;
   revision: number;
   activities: Activity[];
   facts: Fact[];
+  withdrawnMakeupOptions?: MakeupOption[];
 }
 
 export interface Conflict {
@@ -110,6 +117,8 @@ export interface Resolver {
 }
 
 export type BlockingItem = {
+  /** Which function (sangeet, reception, …) this is about, so the same blocker in two functions stays two items. */
+  functionKind: string;
   /** English description, for logs. */
   constraint: string;
   /** English resolver, for logs. */

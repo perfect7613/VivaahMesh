@@ -6,6 +6,7 @@ import { logEvent } from "./weddings";
 import { escapeHtml, send, sendWithApp } from "./telegram-bot";
 import { chat, type ChatMessage, type ToolDef } from "./sarvam";
 import { readPage, webSearch } from "./web";
+import { reportEvent } from "./nudgebee";
 import { compile, fmtMinute } from "@/lib/compiler/compile";
 import { pickLang, type BaseLang } from "@/lib/i18n";
 import { localized } from "./translate";
@@ -310,6 +311,17 @@ export async function runAgent(weddingId: string, trigger: Trigger, opts: AgentO
     return { status: "done" as const, summary, actions, replies: ctx.replies, replied: ctx.replies.length > 0, notesSaved: ctx.notesSaved };
   } catch (e) {
     await s.from("agent_runs").update({ status: "failed", error: String((e as Error).message).slice(0, 500), actions, ...usage, finished_at: new Date().toISOString() }).eq("id", run!.id);
+    // One NudgeBee event per wedding per hour, however many runs fail in it.
+    await reportEvent({
+      findingId: `vivaahmesh-agent:${weddingId}:${new Date().toISOString().slice(0, 13)}`,
+      aggregationKey: "vivaahmesh_agent_failed",
+      title: `Planning agent run failed (${trigger})`,
+      description: `The always-on GLM agent (${model} on Sarvam) failed for a wedding. Families fall back to fixed replies until it recovers. Kill switch: Flagsmith agent_enabled.`,
+      evidence: `run_id=${run!.id}\nwedding_id=${weddingId}\nerror=${String((e as Error).message).slice(0, 300)}`,
+      priority: "MEDIUM",
+      subject: "vivaahmesh-agent",
+      labels: { trigger, model },
+    });
     throw e;
   }
 }

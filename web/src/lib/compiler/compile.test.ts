@@ -43,6 +43,22 @@ describe("cutoff fixtures (PRD Testing Decisions → Compiler)", () => {
     expect(strict.conditional[0].moves[0].to).toEqual({ start: t("20:10"), end: t("20:30") });
   });
 
+  it("withdraws the exact makeup option and keeps other eligible slots", () => {
+    const s = snap([venueSaid(t("21:00"))]);
+    const [option] = compile(s, policy()).conditional;
+    expect(option.missing.byMinute).toBe(t("19:55"));
+    const withdrawal = { functionKind: "sangeet", proposalId: option.id, readyBy: t("19:55") };
+    expect(compile({ ...s, withdrawnMakeupOptions: [withdrawal] }, policy()).conditional
+      .some((proposal) => proposal.id === option.id)).toBe(false);
+    for (const different of [
+      { ...withdrawal, functionKind: "reception" },
+      { ...withdrawal, readyBy: t("19:45") },
+    ]) {
+      expect(compile({ ...s, withdrawnMakeupOptions: [different] }, policy()).conditional
+        .some((proposal) => proposal.id === option.id)).toBe(true);
+    }
+  });
+
   it("21:30 cutoff: a 21:00–21:20 dance fits and dinner stays at 20:30", () => {
     const s = snap([venueSaid(t("21:30"))], danceAt("21:00", "21:20"));
     const r = compile(s, allowDinner);
@@ -301,5 +317,16 @@ describe("review fixes, round 2", () => {
       x.activities.push({ id: "shehnai", functionKind: "sangeet", title: "Shehnai", kind: "other", start: t("20:30"), end: t("21:00"), flexible: true, canOverlapWith: ["dinner"] }),
     );
     expect(compile(s, policy()).conflicts.some((c) => c.activityId === "shehnai")).toBe(false);
+  });
+});
+
+describe("review fixes, issue #5 round", () => {
+  it("finding 9: the same blocker in two functions stays two items", () => {
+    const s = snap([], (x) => {
+      x.activities.push({ id: "r-dance", functionKind: "reception", title: "Reception dance", kind: "dance", start: t("20:00"), end: t("20:20"), flexible: true, requiresAmplifiedMusic: true });
+    });
+    const r = compile(s, policy({ allowDanceDuringDinner: true }));
+    const missing = r.blocking.filter((b) => b.code === "cutoff_unconfirmed");
+    expect(missing.map((b) => b.functionKind).sort()).toEqual(["reception", "sangeet"]);
   });
 });

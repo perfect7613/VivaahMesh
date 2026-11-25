@@ -370,6 +370,7 @@ export const compile: Compile = (input: Snapshot, policy: CompilerPolicy): Compi
         const values = [...new Set(r.contradiction.map((f) => f.value as number))].sort((x, y) => x - y);
         blocking.push({
           code: "contradiction",
+          functionKind: fk,
           factKind: kind,
           values,
           constraint: `Contradictory ${kind.replaceAll("_", " ")} evidence (${values.map(fmtMinute).join(" vs ")})`,
@@ -384,6 +385,7 @@ export const compile: Compile = (input: Snapshot, policy: CompilerPolicy): Compi
     if (needsCutoff && cutoffRes.value === null && !cutoffRes.contradiction) {
       blocking.push({
         code: "cutoff_unconfirmed",
+        functionKind: fk,
         constraint: "Music cutoff not yet confirmed",
         whoCanResolve: "Venue owner (ask when amplified music must stop)",
         resolver: { role: "venue_owner" },
@@ -437,7 +439,11 @@ export const compile: Compile = (input: Snapshot, policy: CompilerPolicy): Compi
         failures.push(ev.violations);
         continue;
       }
-      (ev.missing ? conditional : feasible).push(make(start, end, ev));
+      const candidate = make(start, end, ev);
+      const withdrawn = a.kind === "dance" && snapshot.withdrawnMakeupOptions?.some((option) =>
+        option.functionKind === a.functionKind && option.proposalId === candidate.id
+        && option.readyBy === start - policy.makeupBufferMin);
+      if (!withdrawn) (ev.missing ? conditional : feasible).push(candidate);
     }
 
     // Alternative: keep the activity and extend video coverage (a change to confirm, with a cost).
@@ -496,6 +502,7 @@ export const compile: Compile = (input: Snapshot, policy: CompilerPolicy): Compi
       for (const [constraint, v] of [...source.entries()].sort(([x], [y]) => (x < y ? -1 : 1))) {
         blocking.push({
           code: "no_slot",
+          functionKind: a.functionKind,
           activityId: a.id,
           violated: constraint as Conflict["constraint"],
           constraint: `${a.title}: ${constraint.replaceAll("_", " ")}`,
@@ -511,6 +518,7 @@ export const compile: Compile = (input: Snapshot, policy: CompilerPolicy): Compi
     if (a && !a.flexible) {
       blocking.push({
         code: "fixed_conflict",
+        functionKind: a.functionKind,
         activityId: a.id,
         violated: c.constraint,
         overByMin: c.overByMin,
@@ -524,10 +532,10 @@ export const compile: Compile = (input: Snapshot, policy: CompilerPolicy): Compi
   return { conflicts, proposals, conditional: conditionalOut, blocking: dedupe(blocking), policyVersion: policy.version };
 };
 
-function dedupe<T extends { constraint: string; whoCanResolve: string }>(xs: T[]): T[] {
+function dedupe<T extends { functionKind: string; constraint: string; whoCanResolve: string }>(xs: T[]): T[] {
   const seen = new Set<string>();
   return xs.filter((x) => {
-    const k = `${x.constraint}|${x.whoCanResolve}`;
+    const k = `${x.functionKind}|${x.constraint}|${x.whoCanResolve}`;
     if (seen.has(k)) return false;
     seen.add(k);
     return true;

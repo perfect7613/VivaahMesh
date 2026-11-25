@@ -1,9 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
 
+import { fmtMinute } from "@/lib/compiler/compile";
 import { POST as scan } from "@/app/api/calls/incidents/route";
 import { POST as replay } from "@/app/api/calls/replay/route";
 import { dispatchStoredResult, processCallResult, storeCallResult } from "@/lib/server/calls";
-import { planView, seedDemoPlan } from "@/lib/server/plan";
+import { approveRevision, planView, seedDemoPlan } from "@/lib/server/plan";
 import { db } from "@/lib/server/supabase";
 
 const incident = vi.hoisted(() => ({ paused: true }));
@@ -80,10 +81,29 @@ it("replays stored evidence across concurrent ops requests and updates both hous
   if (!author) throw new Error("Missing seeded call authorizer");
   await seedDemoPlan(memberA, wedding.id);
 
-  const before = await planView(memberA, wedding.id);
-  expect(before).not.toBeNull();
-  expect(await planView(memberB, wedding.id)).toEqual(before);
-  expect(before?.facts.find(({ kind }) => kind === "music_cutoff")?.status).toBe("unresolved");
+  // A prior venue quote gives the couple a proposal they can commit before the call.
+  const baselineFacts = checked(await client.from("facts").insert([
+    { wedding_id: wedding.id, function_kind: "sangeet", kind: "music_cutoff", value: 1315,
+      status: "confirmed", channel: "quote", ref: "fixture-previous-cutoff", wording: "Amplified music stops at 9:55 PM." },
+    { wedding_id: wedding.id, function_kind: "sangeet", kind: "makeup_ready", value: 1190,
+      status: "confirmed", channel: "quote", ref: "fixture-makeup", wording: "Makeup will be ready at 7:50 PM." },
+  ]).select("id,kind"));
+  const priorCutoff = baselineFacts.find(({ kind }) => kind === "music_cutoff");
+  if (!priorCutoff) throw new Error("Expected a baseline cutoff");
+  const initial = await planView(memberA, wedding.id);
+  const originalProposal = initial?.result.proposals[0];
+  if (!initial || !originalProposal) throw new Error("Expected a proposal before the incident");
+  const originalApproval = { weddingId: wedding.id, revision: initial.revision, proposalId: originalProposal.id };
+  expect(await approveRevision(memberA, originalApproval)).toMatchObject({ status: "ok" });
+
+  const [before, beforeB] = await Promise.all([planView(memberA, wedding.id), planView(memberB, wedding.id)]);
+  if (!before || !beforeB) throw new Error("Expected a plan for both households");
+  expect(before).toMatchObject({
+    canApprove: true,
+    committed: { revision: initial.revision, proposalId: originalProposal.id, approvedBy: "Meera" },
+  });
+  expect(beforeB).toEqual({ ...before, canApprove: false });
+  expect(before.facts.find(({ id }) => id === priorCutoff.id)).toMatchObject({ value: 1315, status: "confirmed" });
 
   // The provider attempt was already authorized and opened before the incident.
   const providerId = "recovery-fixture-attempt";
@@ -95,7 +115,12 @@ it("replays stored evidence across concurrent ops requests and updates both hous
     authorized_by: author.id, flags: { channel: "phone" },
   }).select("id").single());
 
-  const wording = "Amplified music must stop at 10 PM for the Sangeet.";
+  // Approval applies its moves to the timeline. Make the venue's new cutoff five minutes
+  // earlier than the committed dance end so recovery creates a visible conflict.
+  const dance = before.activities.find(({ id }) => id === "dance");
+  if (!dance) throw new Error("Expected the approved dance on the timeline");
+  const cutoff = dance.end - 5;
+  const wording = `Amplified music must stop at ${fmtMinute(cutoff)} for the Sangeet.`;
   const payload = {
     attempt_id: providerId,
     status: "connected",
@@ -178,19 +203,28 @@ it("replays stored evidence across concurrent ops requests and updates both hous
   expect(await claim()).toBeNull();
   expect((await (await replay(request())).json()).results).toEqual({ [call.id]: "already" });
 
-  const afterA = await planView(memberA, wedding.id);
-  const afterB = await planView(memberB, wedding.id);
-  expect(afterA).toEqual(afterB);
-  expect(afterA?.snapshotRevision).toBe((before?.snapshotRevision ?? 0) + 1);
-  expect(afterA?.result.conflicts).toContainEqual(expect.objectContaining({
+  const [afterA, afterB] = await Promise.all([planView(memberA, wedding.id), planView(memberB, wedding.id)]);
+  if (!afterA || !afterB) throw new Error("Expected a recovered plan for both households");
+  expect(afterB).toEqual({ ...afterA, canApprove: false });
+  expect(afterA.revision).toBe(before.revision + 1);
+  expect(afterA.committed).toEqual(before.committed);
+  expect(await approveRevision(memberA, originalApproval)).toMatchObject({ status: "stale" });
+  await expect(approveRevision(memberB, {
+    ...originalApproval, revision: afterA.revision,
+  })).rejects.toMatchObject({ message: "couple_only", status: 403 });
+  const revisions = checked(await client.from("plan_revisions").select("revision,result")
+    .eq("wedding_id", wedding.id).order("revision"));
+  expect(revisions.map(({ revision }) => revision)).toEqual([initial.revision, before.revision, afterA.revision]);
+  expect(revisions.at(-1)?.result).toEqual(afterA.result);
+  expect(afterA.result.conflicts).toContainEqual(expect.objectContaining({
     activityId: "dance", constraint: "music_cutoff", overByMin: 5,
   }));
   const completed = checked(await client.from("calls").select("*").eq("wedding_id", wedding.id));
   expect(completed).toHaveLength(1);
   expect(completed[0]).toMatchObject({ id: call.id, provider_attempt_id: providerId, status: "completed", result });
   expect(completed[0].processed_at).not.toBeNull();
-  expect(afterA?.facts.find(({ id }) => id === completed[0].fact_id)).toMatchObject({
-    kind: "music_cutoff", status: "confirmed", value: 1320, channel: "samvaad_call", wording,
+  expect(afterA.facts.find(({ id }) => id === completed[0].fact_id)).toMatchObject({
+    kind: "music_cutoff", status: "confirmed", value: cutoff, channel: "samvaad_call", wording,
   });
   const eventsInDb = checked(await client.from("events").select("kind").eq("wedding_id", wedding.id)
     .in("kind", ["call_result_stored", "call_result_applied"]));

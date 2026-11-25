@@ -28,13 +28,12 @@ create role authenticated nologin;
 create role service_role nologin bypassrls;
 grant anon, service_role to postgres;
 alter default privileges in schema public grant all on tables to service_role;
+alter default privileges in schema public grant execute on functions to service_role;
 SQL
 for migration in "$web_dir"/../supabase/migrations/*.sql; do
   sql -q < "$migration"
 done
 sql -q -f "$web_dir/tests/fixtures/order-call-evidence.sql"
-# seed_demo_plan revokes PUBLIC access. Supabase grants service_role execute by default.
-sql -q -c 'grant execute on function seed_demo_plan(uuid, jsonb, jsonb) to service_role'
 
 port=$(node -e '
   const server = require("node:net").createServer();

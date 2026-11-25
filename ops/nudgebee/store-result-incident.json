@@ -30,7 +30,8 @@
           "labels": {
             "call_id": "{{ Inputs.webhook_json.event.labels.call_id }}",
             "worker": "{{ Inputs.webhook_json.event.labels.worker }}",
-            "reason": "{{ Inputs.webhook_json.event.labels.reason }}"
+            "reason": "{{ Inputs.webhook_json.event.labels.reason }}",
+            "provider_result_id": "{{ Inputs.webhook_json.event.finding_id }}"
           },
           "evidences": [
             {
@@ -38,7 +39,8 @@
               "title": "Stored result",
               "content": "{{ Inputs.webhook_json.event.description }}"
             }
-          ]
+          ],
+          "fingerprint": "{{ Inputs.webhook_json.event.fingerprint }}"
         },
         "trigger_ai_analysis": true
       }
