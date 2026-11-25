@@ -62,11 +62,6 @@ try {
   r = await call(riya, `/api/lifecycle?wedding=${W}`);
   ok(r.json.lifecycle?.spend === null && r.json.lifecycle?.vendors?.[0]?.quote_inr === null, "cousin sees no money");
 
-  const token = (await call(meera, `/api/lifecycle?wedding=${W}`)).json.lifecycle.vendors[0].viewUrl.split("/").pop();
-  r = await call(null, `/api/vendor/${token}`);
-  const txt = JSON.stringify(r.json);
-  ok(r.status === 200 && r.json.functions.length === 3 && !/inr|budget|quote|Patil|priorit/i.test(txt), "vendor run sheet: its 3 functions, no money, no family notes");
-
   r = await act(meera, { type: "add_task", title: "Wedding album delivered", kind: "deliverable" });
   ok(r.json.lifecycle?.openDeliverables === 1, "deliverable task created");
   r = await act(meera, { type: "advance_stage", expectedStage: "booking" });
@@ -92,13 +87,35 @@ try {
   const winnerName = winner === 0 ? "Joshi" : "Kulkarni";
   ok(r.json.registry[0].state === "taken" && !JSON.stringify(r.json).includes(winnerName), "the other guest sees 'taken', never who");
 
-  r = await act(aai, { type: "cancel_vendor", vendorId: v.id, reason: "double-booked" });
-  const kinds = r.json.lifecycle?.tasks?.map((t) => t.kind) ?? [];
-  if (r.status !== 200) console.log("cancel:", r.status, r.json.error);
-  ok(kinds.includes("incident") && kinds.includes("replacement"), "cancellation → owned incident + replacement task");
+  r = await act(aai, { type: "cancel_vendor", vendorId: v.id, reason: "double-booked", simulated: true });
+  ok(r.status === 409 && r.json.error === "stage_locked:day_of", "cancellation locked before day of");
+  r = await act(meera, { type: "advance_stage", expectedStage: "guests" });
+  ok(r.json.lifecycle?.stage === "day_of", "couple → day of");
+  const token = (await call(meera, `/api/lifecycle?wedding=${W}`)).json.lifecycle.vendors[0].viewUrl.split("/").pop();
+  r = await call(null, `/api/vendor/${token}`);
+  const txt = JSON.stringify(r.json);
+  ok(r.status === 200 && r.json.functions.length === 3 && !/inr|budget|quote|Patil|priorit/i.test(txt), "vendor run sheet: its 3 functions, no money, no family notes");
+
+  r = await act(aai, { type: "cancel_vendor", vendorId: v.id, reason: "double-booked", simulated: true });
+  const recovery = r.json.lifecycle?.tasks?.filter((t) => t.seeded && t.owner === "Aai") ?? [];
+  ok(recovery.some((t) => t.kind === "incident") && recovery.some((t) => t.kind === "replacement"),
+    "cancellation → owned and labelled incident + replacement contact task");
+  ok((await call(null, `/api/vendor/${token}`)).status === 404, "cancelled vendor loses run-sheet access");
   ok((await call(meera, `/api/lifecycle?wedding=${W}`)).json.lifecycle?.spend?.planned === 0, "cancelled vendor leaves the spend (couple's view)");
 
-  r = await act(meera, { type: "advance_stage", expectedStage: "guests" });
+  r = await act(aai, { type: "propose_replacement", vendorId: v.id, name: "Backup Catering", contact: "Availability confirmed in rehearsal" });
+  const replacement = r.json.lifecycle?.vendors?.find((candidate) => candidate.replacesVendorId === v.id);
+  ok(replacement?.status === "shortlisted" && replacement.viewUrl === null, "replacement awaits approval without run-sheet access");
+  const plan = (await call(meera, `/api/plan?wedding=${W}`)).json.plan;
+  const proposal = plan?.result.proposals.find((p) => p.vendorReplacement?.vendorId === replacement?.id);
+  ok(proposal?.vendorReplacement?.functions.length === 3 && proposal.vendorReplacement.seeded, "compiler produces the labelled three-function replacement package");
+  if (!proposal) throw new Error("Expected replacement proposal");
+  const decision = { weddingId: W, revision: plan.revision, proposalId: proposal.id };
+  r = await call(aai, "/api/plan/respond", { ...decision, stance: "agree" });
+  ok(r.json.plan?.responses.some((response) => response.memberName === "Aai" && response.stance === "agree"), "household records its decision");
+  r = await call(meera, "/api/plan/approve", decision);
+  ok(r.json.plan?.replacementApproval?.recap?.vendorReplacement?.vendorId === replacement?.id, "couple records replacement approval on the same revision");
+
   r = await act(meera, { type: "advance_stage", expectedStage: "day_of" });
   ok(r.json.lifecycle?.stage === "closeout", "couple → closeout");
   const del = r.json.lifecycle.tasks.find((t) => t.kind === "deliverable");
