@@ -67,7 +67,7 @@ const QUESTION: Record<string, (fn: string) => string> = {
   clarify_scope: (fn) => `For the ${fn} evening, the cousins' 20-minute dance is planned near the end. By what time must amplified music stop, and does that apply to the whole event?`,
 };
 
-async function requireAuthorizer(tgUserId: number, weddingId?: string) {
+export async function requireAuthorizer(tgUserId: number, weddingId?: string) {
   const me = (await memberships(tgUserId)).find((m) => !weddingId || m.wedding_id === weddingId);
   if (!me) throw new HttpError(403, "not_a_member");
   if (!me.is_couple && me.role !== "parent") throw new HttpError(403, "parents_or_couple_only");
@@ -80,6 +80,7 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
   const venue = demoVenue();
   const flags = await flagsForMember(me);
   const variant = flags.features.caller_prompt.value || "baseline";
+  const browserEnabled = flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser";
   const last = await db()
     .from("calls")
     .select("id, status, created_at, error, processed_at, recipient_name")
@@ -93,6 +94,7 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
     callerPrompt: variant,
     dialingEnabled: await killSwitch("outbound_dialing_enabled"),
     configured: !!sarvamConfig() && !!venue,
+    browserEnabled,
     lastCall: last.data,
   };
 }
@@ -104,6 +106,9 @@ export async function authorizeCall(tgUserId: number, weddingId?: string) {
   if (!venue || !cfg) throw new HttpError(503, "calling_not_configured");
 
   const flags = await flagsForMember(me);
+  if (flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser") {
+    throw new HttpError(409, "browser_mode_active");
+  }
   const variant = flags.features.caller_prompt.value || "baseline";
   const dialing = await killSwitch("outbound_dialing_enabled");
   const s = db();
@@ -237,7 +242,7 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
         function_kind: claimed.function_kind,
         value: f.value,
         status: f.status,
-        channel: "samvaad_call",
+        channel: claimed.flags?.channel === "browser" ? "browser_agent" : "samvaad_call",
         ref: claimed.provider_attempt_id ?? claimed.id,
         wording: f.wording,
         supersedes: f.status === "confirmed" ? liveFactIds(prior ?? []) : [],

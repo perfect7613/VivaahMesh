@@ -11,6 +11,7 @@ interface Preview {
   callerPrompt: string;
   dialingEnabled: boolean;
   configured: boolean;
+  browserEnabled: boolean;
   lastCall: { id: string; status: string; error: string | null; processed_at: string | null } | null;
 }
 
@@ -23,6 +24,7 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [callId, setCallId] = useState<string | null>(null);
+  const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const status = preview?.lastCall && preview.lastCall.id === callId ? preview.lastCall : null;
   const done = status && (status.processed_at || ["no_answer", "failed", "blocked"].includes(status.status));
@@ -49,6 +51,15 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
   async function authorize() {
     setBusy(true);
     try {
+      if (preview?.browserEnabled) {
+        const { callId, url } = await api<{ callId: string; url: string }>("/api/calls/browser-invite", {
+          body: { weddingId: view.wedding.id, authorize: true },
+        });
+        setCallId(callId);
+        setBrowserUrl(url);
+        haptic.tap();
+        return;
+      }
       const { call } = await api<{ call: { id: string; status: string } }>("/api/calls", { body: { weddingId: view.wedding.id } });
       setCallId(call.id);
       haptic.tap();
@@ -60,8 +71,14 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
     }
   }
 
-  const canAuthorize = !!preview?.configured && !!preview.recipient && !callId;
-  useMainButton(callId ? t.backToPlan : t.callAuthorize, callId ? onClose : authorize, { enabled: callId ? true : canAuthorize, loading: busy, visible: !!preview });
+  const browserCopy = {
+    en: { authorize: "Authorize browser call", recipient: "Venue owner · browser link", share: "Share this link with the venue owner so they can consent and speak." },
+    hi: { authorize: "ब्राउज़र कॉल की अनुमति दें", recipient: "वेन्यू मालिक · ब्राउज़र लिंक", share: "यह लिंक वेन्यू मालिक को भेजें ताकि वे सहमति देकर बात कर सकें।" },
+    mr: { authorize: "ब्राउझर कॉलला परवानगी द्या", recipient: "कार्यक्रमस्थळाचे मालक · ब्राउझर लिंक", share: "कार्यक्रमस्थळाच्या मालकाला हा दुवा पाठवा, म्हणजे ते संमती देऊन बोलू शकतील." },
+  }[lang];
+  const authorizeLabel = preview?.browserEnabled ? browserCopy.authorize : t.callAuthorize;
+  const canAuthorize = !!preview && (preview.browserEnabled || (preview.configured && !!preview.recipient)) && !callId;
+  useMainButton(callId ? t.backToPlan : authorizeLabel, callId ? onClose : authorize, { enabled: callId ? true : canAuthorize, loading: busy, visible: !!preview });
   useBackButton(onClose);
 
   const statusLine =
@@ -89,13 +106,13 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
         {preview ? (
           <>
             <dl className="overflow-hidden rounded-3xl border border-line bg-card">
-              <Row label={t.callWho} value={preview.recipient ? `${preview.recipient.name} · ${preview.recipient.phone}` : t.callNotSetUp} />
+              <Row label={t.callWho} value={preview.browserEnabled ? browserCopy.recipient : preview.recipient ? `${preview.recipient.name} · ${preview.recipient.phone}` : t.callNotSetUp} />
               <Row label={t.callAsk} value={`“${preview.purpose}”`} border />
               <Row label={t.callLanguage} value={preview.recipient?.language ?? "—"} border />
               <Row label={t.callVariant} value={preview.callerPrompt} border mono />
             </dl>
 
-            {!preview.dialingEnabled ? (
+            {!preview.browserEnabled && !preview.dialingEnabled ? (
               <p className="mt-4 flex items-start gap-2 rounded-2xl border border-line bg-card px-4 py-3 text-[14px] text-body">
                 <span aria-hidden>⛔</span>
                 <span>
@@ -104,7 +121,14 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
               </p>
             ) : null}
 
-            {statusLine ? (
+            {browserUrl ? (
+              <div className="mt-4 space-y-2 rounded-2xl border border-line bg-card p-4">
+                <p>{browserCopy.share}</p>
+                <input className="w-full rounded-lg border border-line px-2 py-2 text-sm" aria-label={browserCopy.share} value={browserUrl} readOnly
+                  onFocus={(event) => event.currentTarget.select()} />
+              </div>
+            ) : null}
+            {statusLine && (!browserUrl || done) ? (
               <div className="mt-6 flex items-center gap-3 rounded-3xl border border-marigold/50 bg-marigold-soft px-5 py-4" aria-live="polite">
                 {!done ? (
                   <span className="relative flex size-3 shrink-0" aria-hidden>
@@ -125,7 +149,7 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
           <div className="h-48 animate-pulse rounded-3xl bg-card" />
         )}
 
-        <FallbackButton text={callId ? t.backToPlan : t.callAuthorize} onClick={callId ? onClose : authorize} enabled={callId ? true : canAuthorize} loading={busy} />
+        <FallbackButton text={callId ? t.backToPlan : authorizeLabel} onClick={callId ? onClose : authorize} enabled={callId ? true : canAuthorize} loading={busy} />
       </main>
     </div>
   );

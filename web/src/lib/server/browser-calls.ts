@@ -1,0 +1,155 @@
+import "server-only";
+
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { db } from "./supabase";
+import { HttpError } from "./weddings";
+import { flagsForMember } from "./flags";
+import { demoVenue, processCallResult, requireAuthorizer } from "./calls";
+import { findSarvamBrowserInteraction, getSarvamBrowserConfig, getSarvamBrowserSession } from "./sarvam-browser";
+import { appUrl } from "./telegram-bot";
+
+const TOKEN = /^[\w-]{43}$/;
+const INTERACTION = /^\d{8}\/[\w-]{1,128}$/;
+const PURPOSE = "Confirm when amplified music must stop at the Sangeet.";
+const LANGS = { en: "English", hi: "Hindi", mr: "Marathi" };
+
+function hash(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export async function jsonObject(req: Request): Promise<Record<string, unknown>> {
+  const value = await req.json().catch(() => null);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new HttpError(400, "invalid_json");
+  return value;
+}
+
+export async function callResponse(action: () => Promise<unknown>) {
+  const headers = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
+  try {
+    return Response.json(await action(), { headers });
+  } catch (error) {
+    if (error instanceof HttpError) return Response.json({ error: error.message }, { status: error.status, headers });
+    console.error("Browser call request failed.");
+    return Response.json({ error: "browser_call_error" }, { status: 500, headers });
+  }
+}
+
+export async function browserInvite(tgId: number, input: Record<string, unknown>) {
+  if (input.authorize !== true || typeof input.weddingId !== "string") throw new HttpError(400, "authorization_required");
+  const me = await requireAuthorizer(tgId, input.weddingId);
+  const id = randomUUID();
+  const flags = await flagsForMember(me, id);
+  if (!flags.features.voice_channel.enabled || flags.features.voice_channel.value !== "browser") {
+    throw new HttpError(409, "browser_mode_disabled");
+  }
+  getSarvamBrowserConfig();
+  const token = randomBytes(32).toString("base64url");
+  const url = appUrl(`/call-consent/${token}`);
+  const callerPrompt = flags.features.caller_prompt.value === "clarify_scope" ? "clarify_scope" : "baseline";
+  const { error } = await db().from("calls").insert({
+    id, wedding_id: me.wedding_id, function_kind: "sangeet", fact_kind: "music_cutoff",
+    recipient_role: "venue_owner", recipient_name: demoVenue()?.name ?? "Venue owner",
+    recipient_phone: "", purpose: PURPOSE, authorized_by: me.id, caller_prompt: callerPrompt,
+    status: "authorized", flags: { source: flags.source, channel: "browser", caller_prompt: callerPrompt },
+    browser_consent_hash: hash(token), browser_consent_expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+  });
+  if (error) throw error;
+  return { callId: id, url };
+}
+
+async function tokenCall(token: string) {
+  if (!TOKEN.test(token)) throw new HttpError(404, "call_not_found");
+  const { data, error } = await db().from("calls")
+    .select("id,status,result_received_at,processed_at,recipient_name,language,purpose,function_kind,caller_prompt,browser_consent_expires_at,browser_consented_at,browser_started_at,provider_attempt_id,fact:facts(status)")
+    .eq("browser_consent_hash", hash(token)).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new HttpError(404, "call_not_found");
+  if (Date.parse(data.browser_consent_expires_at) <= Date.now()) throw new HttpError(410, "consent_expired");
+  return data;
+}
+
+export async function consentView(token: string) {
+  const call = await tokenCall(token);
+  const fact = call.fact as unknown as { status?: string } | null;
+  const status = !call.browser_consented_at ? "awaiting_consent"
+    : call.processed_at ? (fact?.status === "confirmed" ? "resolved" : "unresolved")
+    : call.result_received_at ? "result_saved" : "browser_ready";
+  const config = status === "browser_ready" ? getSarvamBrowserConfig() : null;
+  return {
+    recipientName: call.recipient_name, purpose: call.purpose, functionKind: call.function_kind,
+    language: Object.keys(LANGS).find((code) => LANGS[code as keyof typeof LANGS] === call.language) ?? null,
+    channel: "browser", status, promptVariant: call.caller_prompt,
+    ...(config && { browserConfig: {
+      orgId: config.org_id, workspaceId: config.workspace_id, appId: config.app_id, version: config.version, userIdentifier: call.id,
+    } }),
+  };
+}
+
+export async function consentToVenueCall(token: string, body: Record<string, unknown>) {
+  const call = await tokenCall(token);
+  if (body.consent !== true || (body.language !== "en" && body.language !== "hi" && body.language !== "mr")) {
+    throw new HttpError(400, "consent_required");
+  }
+  const { data, error } = await db().from("calls").update({
+    browser_consented_at: new Date().toISOString(), language: LANGS[body.language],
+  }).eq("id", call.id).is("browser_consented_at", null).select("id").maybeSingle();
+  if (error) throw error;
+  if (!data) throw new HttpError(409, "consent_already_recorded");
+  return { status: "browser_ready" };
+}
+
+export async function browserSession(token: string, path: string[], requestUrl: string) {
+  const call = await tokenCall(token);
+  const config = getSarvamBrowserConfig();
+  const expected = ["orgs", config.org_id, "workspaces", config.workspace_id, "apps", config.app_id, "url"];
+  const query = new URL(requestUrl).searchParams;
+  if (path.length !== expected.length || path.some((part, index) => part !== expected[index])
+    || query.get("version") !== String(config.version) || query.get("interaction_type") !== "call") {
+    throw new HttpError(404, "browser_session_not_found");
+  }
+  if (!call.browser_consented_at || call.status !== "authorized") throw new HttpError(409, "browser_call_not_authorized");
+  const start = new Date().toISOString();
+  const { data, error } = await db().from("calls").update({ browser_started_at: start, status: "dialing" })
+    .eq("id", call.id).eq("status", "authorized").is("browser_started_at", null).select("id").maybeSingle();
+  if (error) throw error;
+  if (!data) throw new HttpError(409, "browser_session_already_started");
+  try {
+    return await getSarvamBrowserSession();
+  } catch {
+    const reset = await db().from("calls").update({ browser_started_at: null, status: "authorized" })
+      .eq("id", call.id).eq("browser_started_at", start).eq("status", "dialing");
+    if (reset.error) throw reset.error;
+    throw new HttpError(502, "browser_session_unavailable");
+  }
+}
+
+export async function saveBrowserResult(token: string, body: Record<string, unknown>) {
+  const call = await tokenCall(token);
+  const id = body.interactionId;
+  if (typeof id !== "string" || !INTERACTION.test(id)) throw new HttpError(400, "invalid_interaction");
+  const resultId = `browser:${id}`;
+  if (call.provider_attempt_id === resultId) return call.id;
+  if (call.status !== "dialing" || !call.browser_started_at) throw new HttpError(409, "browser_call_not_started");
+  const result = await findSarvamBrowserInteraction({ interactionId: id, reference: call.id, startedAt: call.browser_started_at });
+  if (!result) throw new HttpError(409, "browser_result_pending");
+
+  const wording = result.variables.cutoff_wording ?? result.variables.vendor_wording;
+  const verified = typeof wording === "string" && result.transcript.some((turn) => turn.role === "user" && turn.text.includes(wording));
+  const confirmation = result.variables.cutoff_status ?? result.variables.confirmed;
+  const variables = {
+    ...result.variables,
+    vendor_wording: verified ? wording : "",
+    confirmed: verified && (confirmation === "confirmed" || confirmation === "yes") ? "yes" : "no",
+  };
+  const { data, error } = await db().from("calls").update({
+    provider_attempt_id: resultId, status: "completed", result_received_at: new Date().toISOString(),
+    result: { status: "connected", attempt_id: resultId, original_transcript: result.transcript, final_agent_variables: variables },
+  }).eq("id", call.id).eq("status", "dialing").is("result", null).select("id").maybeSingle();
+  if (error) throw error;
+  if (!data && (await tokenCall(token)).provider_attempt_id !== resultId) throw new HttpError(409, "browser_result_mismatch");
+  return call.id;
+}
+
+export async function processVenueResult(callId: string) {
+  await processCallResult(callId);
+}
