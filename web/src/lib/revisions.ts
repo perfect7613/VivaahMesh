@@ -53,6 +53,7 @@ export function revisionFingerprint(snapshot: Snapshot, policy: CompilerPolicy, 
   const withdrawnMakeupOptions = snapshot.withdrawnMakeupOptions?.map(stableStringify).sort();
   return hash53(stableStringify({
     activities, facts: liveFactValues(snapshot.facts), policy, compilerVersion,
+    ...(snapshot.vendorReplacements?.length ? { vendorReplacements: snapshot.vendorReplacements } : {}),
     ...(withdrawnMakeupOptions?.length ? { withdrawnMakeupOptions } : {}),
   }));
 }
@@ -101,6 +102,7 @@ export interface Recap {
   moves: { activityId: string; title: string; from: { start: Minute; end: Minute }; to: { start: Minute; end: Minute } }[];
   costDeltaInr: number | null;
   reasons: Reason[];
+  vendorReplacement?: Proposal["vendorReplacement"];
 }
 
 /** What the couple approved, as structured data: each phone phrases it in its own language. */
@@ -116,6 +118,7 @@ export function buildRecap(revision: number, proposal: Proposal, activities: Act
     })),
     costDeltaInr: proposal.costDeltaInr,
     reasons: proposal.reasons,
+    ...(proposal.vendorReplacement ? { vendorReplacement: proposal.vendorReplacement } : {}),
   };
 }
 

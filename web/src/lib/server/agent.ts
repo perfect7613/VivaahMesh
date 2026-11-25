@@ -257,7 +257,9 @@ export async function runAgent(weddingId: string, trigger: Trigger, opts: AgentO
           `Activities: ${snap.activities.map((a) => `${a.title} ${fmtMinute(a.start)}-${fmtMinute(a.end)}${a.requestedBy ? ` (asked by ${a.requestedBy.memberName}, Household ${a.requestedBy.side}, ${a.requestedBy.priority})` : ""}`).join("; ")}`,
           `Facts: ${snap.facts.map((f) => `${f.kind}=${f.value === null ? "unknown" : f.kind === "overtime_rate" ? `₹${f.value}/h` : fmtMinute(f.value)} [${f.status}, via ${f.source.channel}${f.source.wording ? `: "${f.source.wording}"` : ""}]`).join("; ")}`,
           `Conflicts: ${result!.conflicts.map((c) => `${title(c.activityId)} breaks ${c.constraint} by ${c.overByMin} min`).join("; ") || "none"}`,
-          `Ranked options (policy ${result!.policyVersion}, ${flags.policy.strategy}): ${result!.proposals.map((p) => `#${p.rank} ${p.moves.map((m) => `${title(m.activityId)} → ${fmtMinute(m.to.start)}-${fmtMinute(m.to.end)}`).join(" + ")}, cost ${p.costDeltaInr === null ? "price pending" : `₹${p.costDeltaInr}`}, keeps: ${p.satisfies.join(", ")}`).join(" | ") || "none"}`,
+          `Ranked options (policy ${result!.policyVersion}, ${flags.policy.strategy}): ${result!.proposals.map((p) => p.vendorReplacement
+            ? `#${p.rank} ${p.vendorReplacement.vendorName} to replace ${p.vendorReplacement.cancelledVendorName} (awaiting couple approval${p.vendorReplacement.seeded ? ", sample" : ""})`
+            : `#${p.rank} ${p.moves.map((m) => `${title(m.activityId)} → ${fmtMinute(m.to.start)}-${fmtMinute(m.to.end)}`).join(" + ")}, cost ${p.costDeltaInr === null ? "price pending" : `₹${p.costDeltaInr}`}, keeps: ${p.satisfies.join(", ")}`).join(" | ") || "none"}`,
           `Possible once confirmed: ${result!.conditional.map((p) => `${p.moves.map((m) => `${title(m.activityId)} → ${fmtMinute(m.to.start)}`).join(" + ")} if ${p.missing.question} (ask ${p.missing.askWhom})`).join(" | ") || "none"}`,
           `Blocked on: ${result!.blocking.map((b) => `${b.constraint} → ${b.whoCanResolve}`).join("; ") || "nothing"}`,
         ].join("\n");
