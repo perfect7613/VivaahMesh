@@ -101,5 +101,9 @@ for (let i = 0; i < 20 && !feed.some((x) => x.status === "done" && x.trigger ===
 const done = feed.find((x) => x.status === "done");
 ok(!!done, `agent ran (${feed.map((x) => x.trigger).join(", ")}): ${done?.text ?? "-"}`);
 
+await sleep(2000);
+r = await call(aai, "/api/agent/ask", { weddingId: W, question: "Pune madhe Sangeet sathi changla DJ kiti paise gheto? Ek-don links de." });
+ok(r.status === 200 && !!r.json.answer, `ask anything (web: ${(r.json.searched ?? []).join(" | ") || "none"}): ${(r.json.answer ?? r.json.reason ?? "").slice(0, 300)}`);
+
 console.log(JSON.stringify({ weddingId: W }));
 process.exit(fails ? 1 : 0);
