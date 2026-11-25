@@ -40,34 +40,6 @@ MahiWay keeps the groups and adds what they can't do:
 | Decisions | Whoever shouts last | Each family responds, and the couple approves one exact plan revision. An approval made on an outdated screen is rejected |
 | Language | Everyone reads Hinglish | Each person reads in their own language (22 Indian languages + English) |
 
-## What it does
-
-**Families**
-- Telegram bot + Mini App (also a PWA). Create a wedding, invite the other family, and pick any of the **22 scheduled Indian languages or English**. Marathi, Hindi and English are hand-written. Every other language is translated once by GLM-5.3 and cached, and Urdu, Kashmiri and Sindhi display right to left.
-- **Functions in the family's own words**: Haldi, Sangeet and Pheras, plus anything they add (Tilak, Jaggo, Nikah…), each with its date, time, venue and notes.
-- Voice notes in any language are transcribed by **Sarvam Saaras**. **Dictate** (Marathi household input) and a **Bulbul** spoken recap of the approved plan.
-
-**The always-on planning agent** (GLM-5.3 on the **Sarvam Token Factory**)
-- Wakes on every message, voice note, family-group update, call result and approval, and on a heartbeat every 5 minutes (GitHub Actions).
-- **Reads messages from linked household members** once the couple or an authorized parent connects a Telegram group. It saves real updates as private household notes credited to the speaker. Mentions can get a reply based on the recent group messages.
-- **Ask about your plan** in a Telegram DM or the app. For vendor ideas, prices, muhurat dates or customs, type `/search` followed by public search terms. The agent cites public search results and can read a result through Firecrawl. Direct chat history is scoped to the wedding and member.
-- Private conversations only reach their originating chat, and automated notifications use shared plan context. The agent can point authorized family members to the call review screen. Automatic runs can send up to three notifications and are limited to one nudge per audience per hour. Each Telegram account gets 20 interactive agent requests per 24-hour quota window, shared across the Mini App, direct chats, and group mentions or audio. Scheduled checks do not use this quota.
-
-**The plan**
-- A pure, deterministic **wedding compiler** checks activities against confirmed facts (music cutoff, photographer coverage, makeup readiness…) and ranks options. Typed vendor terms stay *conditional* until the vendor confirms them.
-- **Revision-bound decisions**: each household responds to an exact plan revision, and the couple approves one. Late evidence creates a new revision, so a tap on an outdated screen changes nothing.
-- **Venue call** (Sarvam Samvaad outbound): a parent authorizes it and the agent asks the venue for the music cutoff. Corrections made mid-call are kept, and the last answer wins. There is also a browser voice fallback with per-call consent, and a makeup-artist enquiry by link. Until a Sarvam phone number is connected, **rehearsal mode** runs a simulated venue through the same pipeline, labelled "Rehearsal" everywhere.
-
-
-**The planner** (after the plan is approved)
-- **Owned tasks** with due dates. Deliverables like the wedding film stay open after the wedding until they arrive, and the couple signs off at closeout.
-- **Vendors**: the family's own vendors sit beside sourced ones. Authorizing a booking, the vendor accepting, and paying are three separate steps. Only the couple, or a parent the couple has granted access, can authorize.
-- **Spend**: planned, committed and actual, with a warning and an owned task when an invoice differs from the approved amount. Only the couple sees money.
-- **Guests**: RSVPs per function with meal counts on a guest link (no Telegram needed), and a gift registry where two guests can't reserve the same gift.
-- **Vendor run sheet**: each vendor gets a link showing only their functions and times from the approved plan.
-- Screens unlock stage by stage through Flagsmith, and other phones refresh within about two seconds of any change.
-
-
 ## Screenshots
 
 | Talk to the bot | Who asked for what | Always-on agent | Planner |
@@ -182,6 +154,27 @@ stateDiagram-v2
   note right of closeout: invoices vs approved, sign-off
 ```
 
+## What it does
+
+| Area | Capability | How it works |
+|---|---|---|
+| **Families** | Telegram bot + Mini App (also a PWA): create a wedding, invite the other family, pick any of the **22 scheduled Indian languages or English** | Marathi, Hindi and English are hand-written. Every other language is translated once by GLM-5.3 and cached. Urdu, Kashmiri and Sindhi display right to left |
+| | **Functions in the family's own words**: Haldi, Sangeet, Pheras, plus anything they add (Tilak, Jaggo, Nikah…) | Each function has its date, time, venue and notes |
+| | **Voice first**: voice notes in any language, household dictation, spoken recap | Sarvam **Saaras** transcribes, **Dictate** for Marathi household input, **Bulbul** reads the approved plan aloud |
+| **Always-on agent** (GLM-5.3 on Sarvam Token Factory) | Wakes on every message, voice note, family-group update, call result and approval | Plus a heartbeat every 5 minutes (GitHub Actions) |
+| | **Reads the family groups** once the couple or an authorized parent links one | Saves real updates as private household notes credited to the speaker. Mentions get a reply based on recent group messages |
+| | **Ask about your plan** in a Telegram DM or the app; `/search` for vendor ideas, prices, muhurat dates or customs | Cites public search results and can read a result through Firecrawl. Chat history is scoped to the wedding and member |
+| | **Privacy and limits** | Private conversations stay in their own chat; notifications use shared plan context. Up to 3 notifications per automatic run, one nudge per audience per hour, 20 interactive requests per account per 24 h (scheduled checks don't count) |
+| **The plan** | **Deterministic wedding compiler** checks activities against confirmed facts (music cutoff, photographer coverage, makeup readiness…) and ranks options | Typed vendor terms stay *conditional* until the vendor confirms them |
+| | **Revision-bound decisions**: each household responds to an exact revision, and the couple approves one | Late evidence creates a new revision, so a tap on an outdated screen changes nothing |
+| | **Venue call**: a parent authorizes it and the agent asks the venue for the music cutoff | Sarvam Samvaad outbound. Mid-call corrections are kept and the last answer wins. Browser voice fallback with per-call consent, and a makeup-artist enquiry by link. Until a Sarvam number is connected, **rehearsal mode** runs a simulated venue through the same pipeline, labelled "Rehearsal" everywhere |
+| **The planner** | **Owned tasks** with due dates | Deliverables like the wedding film stay open after the wedding; the couple signs off at closeout |
+| | **Vendors**: the family's own beside sourced ones | Authorizing, vendor accepting and paying are three separate steps. Only the couple, or a parent they granted access, can authorize |
+| | **Spend**: planned, committed and actual | An invoice that differs from the approved amount raises a warning and an owned task. Only the couple sees money |
+| | **Guests and registry** | RSVPs per function with meal counts on a guest link (no Telegram needed); two guests can never reserve the same gift |
+| | **Vendor run sheet** | Each vendor gets a link with only their functions and times from the approved plan |
+| | **Stages and live updates** | Screens unlock stage by stage through Flagsmith; other phones refresh within about two seconds of any change |
+
 ## Sponsors
 
 Each of the three sponsors does a job MahiWay can't work without:
@@ -194,31 +187,26 @@ Each of the three sponsors does a job MahiWay can't work without:
 
 ### Sarvam AI: the voice and brain of the wedding
 
-One Sarvam key covers five models, and together they give MahiWay a full speech-and-language stack for Indian families:
+One Sarvam key covers five models:
 
-- **GLM-5.3 on the Token Factory** runs the always-on agent with real tool calling: it reads family groups, saves notes under the right person's name, answers questions and decides who to nudge. It also translates the whole interface into the 20 languages we don't hand-write.
-- **Saaras v4** turns a 30-second voice note in Marathi, Hindi or Hinglish into text, so elders can speak instead of type.
-- **Sarvam Translate** sends every bot and agent message in the reader's own language: 22 scheduled Indian languages plus English.
-- **Samvaad** is a voice agent that phones the venue, asks one precise question, and returns structured answers (`music_cutoff`, `confirmed`, `vendor_wording`) that go straight into the plan as evidence.
-- **Bulbul** reads the approved plan aloud, and **Dictate** lets a household speak its requirements.
-
-| Use | API |
-|---|---|
-| Always-on agent, tool calling, translation of the whole UI | Token Factory `POST /v2/chat/completions`, model `glm5.3-flash` (switchable to `glm5.3` from Flagsmith) |
-| Voice notes in any language | Saaras v4 `speech-to-text` |
-| Bot and agent messages in 20 more languages | `sarvam-translate:v1` |
-| Venue call | Samvaad voice agent, outbound API + webhook (prompt and variables: [`docs/samvaad-agent.md`](docs/samvaad-agent.md)) |
-| Household dictation, spoken recap | Dictate, Bulbul |
+| Model | What it does in MahiWay | API |
+|---|---|---|
+| **GLM-5.3** (Token Factory) | Runs the always-on agent with real tool calling: reads family groups, saves notes under the right person, answers questions, decides who to nudge. Also translates the interface into the 20 languages we don't hand-write | `POST /v2/chat/completions`, model `glm5.3-flash` (switchable to `glm5.3` from Flagsmith) |
+| **Saaras v4** | Turns a voice note in Marathi, Hindi or Hinglish into text, so elders can speak instead of type | `speech-to-text` |
+| **Sarvam Translate** | Sends every bot and agent message in the reader's language: 22 Indian languages plus English | `sarvam-translate:v1` |
+| **Samvaad** | A voice agent that phones the venue, asks one precise question, and returns structured answers (`music_cutoff`, `confirmed`, `vendor_wording`) that go into the plan as evidence | Outbound API + webhook ([`docs/samvaad-agent.md`](docs/samvaad-agent.md)) |
+| **Bulbul**, **Dictate** | Reads the approved plan aloud; lets a household speak its requirements | Bulbul TTS, Dictate |
 
 ### Flagsmith: the control plane (project `MahiWay`, Development + Production)
 
-MahiWay uses Flagsmith as the wedding's rulebook, beyond simple on/off flags:
+| Capability | How MahiWay uses it |
+|---|---|
+| **Remote config drives the compiler** | `compiler_policy` is a versioned JSON policy deciding how options are ranked. Change it in the dashboard and the next plan uses it, no deploy. Every revision and approval records the policy version |
+| **Kill switches with safe defaults** | One toggle stops every outbound call; another holds call results without losing them. If Flagsmith is unreachable: dialing off, agent on |
+| **Segments and identities** | Marathi speakers get the Bulbul recap, one household gets features first, each wedding's stage unlocks screens. Shared decisions use one wedding-level identity, so both families see the same rules |
+| **Experiments** | `caller_prompt` A/B tests how the voice agent asks the venue, bucketed per call |
+| **Live model switching** | `agent_model` swaps the GLM model mid-event |
 
-- **Remote config drives the compiler.** `compiler_policy` is a versioned JSON policy that decides how options are ranked. Change it in the dashboard and the next plan uses it, with no deploy. Every revision records the policy version it was built with, so an approval always shows which rules produced it.
-- **Kill switches with safe defaults.** One toggle stops every outbound call; another holds call results without losing them. If Flagsmith can't be reached, the app fails safe: dialing off.
-- **Segments and identities.** Marathi speakers get the Bulbul recap, one household gets a feature first, and each wedding's stage (brief → closeout) unlocks screens through `stage_*` segments. Shared decisions use one wedding-level identity, so both families always see the same rules.
-- **Experiments.** `caller_prompt` A/B tests how the voice agent asks the venue, bucketed per call, with metrics ready for Flagsmith experiments.
-- **Live model switching.** `agent_model` swaps the GLM model mid-event.
 | Flag | What it controls |
 |---|---|
 | `compiler_policy` (JSON) | Ranking strategy (`preserve_family_priorities` / `minimize_changes` / `lowest_confirmed_cost`), buffers, max options, dance during dinner. Every revision and approval stores the policy version it used |
@@ -230,7 +218,18 @@ MahiWay uses Flagsmith as the wedding's rulebook, beyond simple on/off flags:
 | `voice_recap_bulbul`, `conditional_options_ui`, `whatsapp_bridge_enabled`, `onboarding_celebration`, `home_team_section` | Per-segment UI rollouts |
 | `stage_sourcing` … `stage_closeout` | Stage gating |
 
-Segments: `marathi_speakers` (language = mr → Bulbul recap), `household_a` (conditional options + WhatsApp bridge), and `stage_*_plus` (wedding_stage). Identities are `wedding:<id>:member:<id>` for per-person UI, and `wedding:<id>` for anything both families must see identically (the compiler policy). If Flagsmith is down, everything falls back to safe defaults: dialing off, agent on.
+| Segment / identity | Used for |
+|---|---|
+| `marathi_speakers` (language = mr) | Bulbul recap |
+| `household_a` | Conditional options + WhatsApp bridge |
+| `stage_*_plus` (wedding_stage) | Stage gating |
+| `wedding:<id>:member:<id>` | Per-person UI |
+| `wedding:<id>` | Anything both families must see identically (the compiler policy) |
+
+Create everything with `node web/scripts/flagsmith-setup.mjs`. Flip a flag live with `node web/scripts/flag.mjs <flag> on|off|key=value`.
+
+<details>
+<summary><b>Caller-prompt experiment</b> (scripted replay and publishing to Flagsmith)</summary>
 
 Caller-prompt experiment (5 scripted scenarios × 2 variants, observed counts, not a statistical claim): [`docs/caller-experiment.md`](docs/caller-experiment.md), reproduce with `cd web && npm run experiment`.
 
@@ -238,26 +237,44 @@ To publish the ten scripted calls, use a dedicated Flagsmith replay environment 
 
 Live exposures use a pinned call identity and are recorded when Sarvam accepts an outbound attempt or issues a consented browser session. Completed results report observed confirmations and follow-up counts, including zeros for unanswered calls. Unsupported changes require known ground truth and are scored in the scripted replay. The event payload contains counts and experiment metadata. [Flagsmith experiment setup](https://docs.flagsmith.com/experimentation/run-an-experiment)
 
-Create everything with `node web/scripts/flagsmith-setup.mjs`. Flip a flag live with `node web/scripts/flag.mjs <flag> on|off|key=value`.
+</details>
 
 ### NudgeBee: incident and approval-gated recovery
 
-NudgeBee keeps the one part of MahiWay that talks to the outside world honest. When a venue answer gets stuck, the app raises a NudgeBee event, and the `vivaahmesh-call-result-recovery` workflow does a dry run, waits for a person to approve, and then recovers: it turns the Flagsmith pause off and replays the held results. Nothing reaches the plan without that approval, and every step is visible in NudgeBee's executions log. Agent failures are reported as NudgeBee events too.
+| Step | What happens |
+|---|---|
+| 1. Detect | A venue answer is stuck (or the agent fails): the app raises a NudgeBee event |
+| 2. Dry run | Workflow `vivaahmesh-call-result-recovery` runs `check_state` to see what would recover |
+| 3. Approve | `approve_recovery` waits for a person. Nothing reaches the plan without that approval |
+| 4. Recover | `recover` turns the Flagsmith pause off and replays the held results |
+| 5. Result | Both households read the new plan revision; every step is in NudgeBee's executions log |
+
+<details>
+<summary><b>Azure result worker and inline deployments</b></summary>
 
 The Azure worker leases saved vendor answers from Postgres. A stopped worker leaves answers available for recovery. An independent NudgeBee scan reports overdue results, keyed by the provider result ID, and requests an investigation. Human approval turns off the Flagsmith pause switch, restores the worker and replays the identified call. Both households read the resulting plan revision. [Azure worker setup](docs/result-worker.md) · [NudgeBee workflows and rehearsal](docs/nudgebee-workflows.md)
 
 Existing inline deployments can keep their API-key incident reporting, agent-failure alerts and approved recovery endpoint. The Azure workflows use a separate integration webhook.
 
+</details>
 
-## Seed a rehearsal wedding
+## Test it
+
+| What | Command | Covers |
+|---|---|---|
+| Unit tests | `cd web && npm test` | Compiler, flags, lifecycle, experiment, security (142 tests) |
+| Live end to end | `node web/scripts/e2e-live.mjs <url>` | Families → call → approval → agent, with signed Telegram users and a throwaway wedding |
+| Live planner | `node web/scripts/e2e-lifecycle.mjs <url>` | Stages, vendors, spend, guests, RSVPs, registry race, vendor run sheet |
+| By hand, with real phones | [`docs/TESTING.md`](docs/TESTING.md) | Step-by-step script with what you should see |
+
+<details>
+<summary><b>Seed a rehearsal wedding</b></summary>
 
 With the migrations applied to your rehearsal project, set `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `TELEGRAM_BOT_USERNAME` in the server environment. From `web/` run `npm run seed:wedding -- <organizer-telegram-id>` using Node 22. The organizer is the first partner. Share each of the two household links with its family and the single-use couple invitation with the other partner. These private links grant access and should stay out of build logs.
 
 The seed creates a fictional ₹15 lakh, 350-guest wedding with Sangeet, Ceremony and Reception. Open the Sangeet plan to see the five-minute video overrun and unresolved venue cutoff. Rerunning for the same organizer returns the same wedding and preserves subsequent edits. Seeded weddings use a simulated venue even when Sarvam and a real phone number are configured. The outbound Flagsmith switch still controls whether the rehearsal can start. The simulated answer updates the plan with a rehearsal label and stays in the app. To deliberately exercise the live phone or browser path with a consenting participant, set `DEMO_SEEDED_LIVE_CALLS=1` on the app server and configure the relevant channel. Clear the setting when the session ends.
 
-## Live test
-
-Run against a deployment (signed Telegram users, throwaway weddings): `node web/scripts/e2e-live.mjs <url>` (families → call → approval → agent) and `node web/scripts/e2e-lifecycle.mjs <url>` (stages, vendors, spend, guests, RSVPs, registry race, vendor run sheet). Step-by-step manual test with real phones: [`docs/TESTING.md`](docs/TESTING.md).
+</details>
 
 ## Setup from a fresh checkout
 
@@ -292,7 +309,9 @@ gh secret set OPS_SECRET                                    # heartbeat workflow
 | `CALL_RESULT_PROCESSOR`, `NUDGEBEE_EVENT_WEBHOOK_URL` | Azure result worker mode and incident workflow |
 | `OPS_SECRET` | Heartbeat, replay and recovery endpoints |
 
-### Browser sign-in at `/tg`
+<details>
+<summary><b>Browser sign-in at <code>/tg</code></b></summary>
+
 
 1. Apply the Supabase migrations and set `APP_URL` to the canonical HTTPS origin. Set `BROWSER_AUTH_SECRET` to a separate random value from `openssl rand -hex 32`.
 2. In BotFather, select the same bot used by the Mini App, open **Login Widget**, and add the origin to **Allowed URLs**. Keep the default RS256 signing algorithm. If the configured Client ID differs from the bot token’s numeric prefix, set `TELEGRAM_LOGIN_CLIENT_ID` to the ID displayed by BotFather.
@@ -300,22 +319,30 @@ gh secret set OPS_SECRET                                    # heartbeat workflow
 
 The browser saves the most recent wedding schedule on the device for up to 24 hours. Signing out or switching accounts clears that copy. See the [browser PWA test steps](docs/TESTING.md#browser-pwa).
 
+</details>
+
 ## Security model
 
-- The browser never sees a server key. Wedding APIs authenticate Telegram `initData` or a signed browser session issued after verification by Telegram Login or Supabase Auth. The bot webhook checks Telegram's secret header, and each Sarvam callback carries a per-call HMAC token.
-- RLS is on for every table with no anon policies. Budgets are couple-only, and household-private notes are loaded only into that household's direct-chat context. The shared activity feed contains status and delivery counts.
-- A public search sends only the terms explicitly entered after `/search` to the provider. Enter public terms only. Search runs receive no wedding data or chat history, and Firecrawl page reads are limited to results from the same search.
+| Area | Protection |
+|---|---|
+| Keys | The browser never sees a server key |
+| Sign-in | Wedding APIs authenticate Telegram `initData` or a signed browser session issued after Telegram Login or Supabase Auth |
+| Webhooks | The bot webhook checks Telegram's secret header; each Sarvam callback carries a per-call HMAC token |
+| Database | RLS on every table with no anon policies |
+| Private data | Budgets are couple-only. Household-private notes are loaded only into that household's direct-chat context. The shared activity feed holds status and delivery counts |
+| Web search | Only the terms typed after `/search` go to the provider. Search runs get no wedding data or chat history, and Firecrawl reads are limited to results from the same search |
 
 ## Repo layout
 
-```
-web/src/app/tg              Telegram Mini App            web/src/lib/compiler      Pure wedding compiler + tests
-web/src/app/api/*           JSON API, bot + Sarvam webhooks, agent, ops endpoints
-web/src/lib/server/agent.ts Always-on GLM agent (tools, privacy rules, heartbeat, family groups)
-web/src/lib/server/*        Sarvam, Flagsmith, NudgeBee, Firecrawl, plan, calls, translate
-web/scripts                 flagsmith-setup, flag, nudgebee-setup, e2e-live
-supabase/migrations         Schema and atomic RPCs (record_revision, approve_revision, apply_call_evidence…)
-```
+| Path | What's there |
+|---|---|
+| `web/src/app/tg` | Telegram Mini App |
+| `web/src/app/api/*` | JSON API, bot + Sarvam webhooks, agent, ops endpoints |
+| `web/src/lib/compiler` | Pure wedding compiler + tests |
+| `web/src/lib/server/agent.ts` | Always-on GLM agent (tools, privacy rules, heartbeat, family groups) |
+| `web/src/lib/server/*` | Sarvam, Flagsmith, NudgeBee, Firecrawl, plan, calls, translate, lifecycle |
+| `web/scripts` | flagsmith-setup, flag, nudgebee-setup, e2e-live, e2e-lifecycle |
+| `supabase/migrations` | Schema and atomic RPCs (record_revision, approve_revision, apply_call_evidence…) |
 
 ## Team
 
