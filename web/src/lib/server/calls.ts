@@ -72,6 +72,15 @@ const QUESTION: Record<string, (fn: string) => string> = {
   clarify_scope: (fn) => `For the ${fn} evening, the cousins' 20-minute dance is planned near the end. By what time must amplified music stop, and does that apply to the whole event?`,
 };
 
+export function browserCallDetails(prompt: string | null | undefined) {
+  const callerPrompt = prompt === "clarify_scope" ? "clarify_scope" : "baseline";
+  return {
+    callerPrompt,
+    recipientName: process.env.DEMO_VENUE_NAME?.trim() || "Venue owner",
+    purpose: QUESTION[callerPrompt]("Sangeet"),
+  };
+}
+
 export async function requireAuthorizer(tgUserId: number, weddingId?: string) {
   const me = (await memberships(tgUserId)).find((m) => !weddingId || m.wedding_id === weddingId);
   if (!me) throw new HttpError(403, "not_a_member");
@@ -93,14 +102,16 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  const browser = browserEnabled ? browserCallDetails(variant) : null;
   return {
+    browserRecipient: browser?.recipientName,
     recipient: venue
       ? { name: venue.name, phone: maskPhone(venue.phone), language: venue.language, role: venue.role }
       : rehearsal()
         ? { name: "Shubh Mangal Lawns (rehearsal)", phone: "no phone call", language: "Hindi", role: "venue_owner" }
         : null,
-    purpose: (QUESTION[variant] ?? QUESTION.baseline)("Sangeet"),
-    callerPrompt: variant,
+    purpose: browser?.purpose ?? (QUESTION[variant] ?? QUESTION.baseline)("Sangeet"),
+    callerPrompt: browser?.callerPrompt ?? variant,
     dialingEnabled: await killSwitch("outbound_dialing_enabled"),
     browserEnabled,
     configured: (!!sarvamConfig() && !!venue) || rehearsal(),
@@ -243,7 +254,13 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
     return c?.result ? "already" : "no_result";
   }
   try {
-    const f = factFromResult(claimed.result as SarvamWebhook);
+    const payload = claimed.result as SarvamWebhook;
+    const f = factFromResult(payload);
+    if (claimed.flags?.channel === "browser" && f.status === "confirmed") {
+      // Browser evidence uses fixed 24-hour HH:MM. The shared phone parser treats bare evening hours as PM.
+      const [hours, minutes] = String(payload.final_agent_variables?.music_cutoff).split(":").map(Number);
+      if (Number.isInteger(hours) && Number.isInteger(minutes)) f.value = hours * 60 + minutes;
+    }
     const { data: prior } = await s
       .from("facts")
       .select("id, supersedes")

@@ -12,6 +12,7 @@ interface Preview {
   dialingEnabled: boolean;
   configured: boolean;
   browserEnabled: boolean;
+  browserRecipient?: string;
   rehearsal?: boolean;
   lastCall: { id: string; status: string; error: string | null; processed_at: string | null } | null;
 }
@@ -50,11 +51,15 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
   }, [status?.processed_at]);
 
   async function authorize() {
+    setError(null);
     setBusy(true);
     try {
       if (preview?.browserEnabled) {
         const { callId, url } = await api<{ callId: string; url: string }>("/api/calls/browser-invite", {
-          body: { weddingId: view.wedding.id, authorize: true },
+          body: {
+            weddingId: view.wedding.id, authorize: true,
+            recipientName: preview.browserRecipient, purpose: preview.purpose, callerPrompt: preview.callerPrompt,
+          },
         });
         setCallId(callId);
         setBrowserUrl(url);
@@ -65,7 +70,12 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
       setCallId(call.id);
       haptic.tap();
     } catch (e) {
-      setError((e as Error).message);
+      const message = (e as Error).message;
+      setError(message);
+      if (message === "browser_preview_changed" || message === "browser_mode_disabled") {
+        const current = await api<Preview>(`/api/calls?wedding=${view.wedding.id}`).catch(() => null);
+        if (current) setPreview(current);
+      }
       haptic.error();
     } finally {
       setBusy(false);
@@ -73,9 +83,9 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
   }
 
   const browserCopy = {
-    en: { authorize: "Authorize browser call", recipient: "Venue owner · browser link", share: "Share this link with the venue owner so they can consent and speak." },
-    hi: { authorize: "ब्राउज़र कॉल की अनुमति दें", recipient: "वेन्यू मालिक · ब्राउज़र लिंक", share: "यह लिंक वेन्यू मालिक को भेजें ताकि वे सहमति देकर बात कर सकें।" },
-    mr: { authorize: "ब्राउझर कॉलला परवानगी द्या", recipient: "कार्यक्रमस्थळाचे मालक · ब्राउझर लिंक", share: "कार्यक्रमस्थळाच्या मालकाला हा दुवा पाठवा, म्हणजे ते संमती देऊन बोलू शकतील." },
+    en: { authorize: "Authorize browser call", recipient: "Browser link", changed: "Call details changed. Review them and authorize again.", share: "Share this link with the venue owner so they can consent and speak." },
+    hi: { authorize: "ब्राउज़र कॉल की अनुमति दें", recipient: "ब्राउज़र लिंक", changed: "कॉल की जानकारी बदल गई है। देखकर फिर से अनुमति दें।", share: "यह लिंक वेन्यू मालिक को भेजें ताकि वे सहमति देकर बात कर सकें।" },
+    mr: { authorize: "ब्राउझर कॉलला परवानगी द्या", recipient: "ब्राउझर लिंक", changed: "कॉलचे तपशील बदलले. ते पाहून पुन्हा परवानगी द्या.", share: "कार्यक्रमस्थळाच्या मालकाला हा दुवा पाठवा, म्हणजे ते संमती देऊन बोलू शकतील." },
   }[base(lang)];
   const authorizeLabel = preview?.browserEnabled ? browserCopy.authorize : t.callAuthorize;
   const canAuthorize = !!preview && (preview.browserEnabled || (preview.configured && !!preview.recipient)) && !callId;
@@ -100,7 +110,7 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
 
         {error ? (
           <p className="mb-5 rounded-2xl border border-sindoor/40 bg-sindoor/10 px-4 py-3 text-[15px]">
-            {error === "parents_or_couple_only" ? t.callOnlyParents : error === "calling_not_configured" ? t.callNotSetUp : t.callFailed}
+            {error === "browser_preview_changed" || error === "browser_mode_disabled" ? browserCopy.changed : error === "parents_or_couple_only" ? t.callOnlyParents : error === "calling_not_configured" ? t.callNotSetUp : t.callFailed}
           </p>
         ) : null}
 
@@ -112,9 +122,9 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
               </p>
             ) : null}
             <dl className="overflow-hidden rounded-3xl border border-line bg-card">
-              <Row label={t.callWho} value={preview.browserEnabled ? browserCopy.recipient : preview.recipient ? `${preview.recipient.name} · ${preview.recipient.phone}` : t.callNotSetUp} />
+              <Row label={t.callWho} value={preview.browserEnabled ? `${preview.browserRecipient} · ${browserCopy.recipient}` : preview.recipient ? `${preview.recipient.name} · ${preview.recipient.phone}` : t.callNotSetUp} />
               <Row label={t.callAsk} value={`“${preview.purpose}”`} border />
-              <Row label={t.callLanguage} value={preview.recipient?.language ?? "—"} border />
+              <Row label={t.callLanguage} value={preview.browserEnabled ? "—" : preview.recipient?.language ?? "—"} border />
               <Row label={t.callVariant} value={preview.callerPrompt} border mono />
             </dl>
 
