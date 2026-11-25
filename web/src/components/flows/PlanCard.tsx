@@ -5,6 +5,7 @@ import { ApiError, api, haptic } from "@/lib/client/telegram";
 import { fmtMinute } from "@/lib/compiler/compile";
 import type { Activity, BlockingItem, CompileResult, FactKind, Reason, Requester, Resolver } from "@/lib/compiler/types";
 import { formatINR } from "@/components/ui";
+import { AskMakeupArtist, MakeupReplies, type MakeupEnquiryView } from "./MakeupEnquiry";
 import type { View } from "./types";
 
 type Stance = "agree" | "prefer_other" | "object";
@@ -27,6 +28,7 @@ interface Plan {
   } | null;
   canRespond: boolean;
   canApprove: boolean;
+  makeupEnquiries?: MakeupEnquiryView[];
 }
 
 const POLL_MS = 5000;
@@ -140,7 +142,7 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
     ) : null;
   }
 
-  const { result, activities } = plan;
+  const { result, activities, makeupEnquiries = [] } = plan;
   const title = (id: string) => activities.find((a) => a.id === id)?.title ?? id;
   const familyOf = (side: string) => view.households.find((h) => h.side === side)?.name ?? `Household ${side}`;
   const requirements = activities.filter((a) => a.requestedBy);
@@ -297,8 +299,21 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
                 <p className="mt-1.5 text-[14px]">
                   <span className="text-muted">{t.needsAnswer}: </span>
                   {p.missing.factKind === "makeup_ready" && p.missing.byMinute !== undefined ? t.askMakeup(p.missing.askWhom, fmtMinute(p.missing.byMinute)) : p.missing.question}
-                  {" "}<span className="font-medium text-marigold">{t.askWhom(p.missing.askWhom)}</span>
                 </p>
+                {p.missing.factKind === "makeup_ready" && p.missing.byMinute !== undefined ? (
+                  <AskMakeupArtist
+                    key={`${p.id}:${p.missing.byMinute}`}
+                    weddingId={view.wedding.id}
+                    proposalId={p.id}
+                    artist={p.missing.askWhom}
+                    readyBy={p.missing.byMinute}
+                    enquired={makeupEnquiries.find((enquiry) => enquiry.proposalId === p.id && enquiry.readyBy === p.missing.byMinute)}
+                    canAsk={view.me.isCouple || view.me.role === "parent"}
+                    lang={lang}
+                    onUpdate={load}
+                  />
+                ) : <p className="text-sm font-medium">{t.askWhom(p.missing.askWhom)}</p>}
+
                 {/* Families can weigh in, but a conditional option cannot be approved until the answer is in. */}
                 {decide(p.id, false)}
               </li>
@@ -306,6 +321,7 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
           </ol>
         </div>
       ) : null}
+      <MakeupReplies enquiries={makeupEnquiries} lang={lang} />
 
       {result.conflicts.length > 0 && result.proposals.length === 0 && result.conditional.length === 0 ? (
         <p className="text-[14px] font-medium">{t.planNothingFits}</p>

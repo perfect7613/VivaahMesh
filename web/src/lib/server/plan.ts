@@ -3,6 +3,7 @@ import { db } from "./supabase";
 import { HttpError, logEvent, memberships } from "./weddings";
 import { familyRequirements } from "./family-voice";
 import { applyFamilyRequirements } from "@/lib/family-plan";
+import { makeupEnquiries } from "./makeup-enquiries";
 import { compile, withConfirmedTimes } from "@/lib/compiler/compile";
 import { demoSangeet } from "@/lib/compiler/fixtures/demo-sangeet";
 import { weddingFlags, type ResolvedFlags } from "./flags";
@@ -117,6 +118,7 @@ export interface PlanView {
   revision: number;
   activities: Activity[];
   facts: { id: string; kind: FactKind; functionKind: string; value: number | null; status: Fact["status"]; wording: string; channel: string }[];
+  makeupEnquiries: Awaited<ReturnType<typeof makeupEnquiries>>;
   result: CompileResult;
   policy: { version: string; strategy: CompilerPolicy["strategy"]; source: ResolvedFlags["source"] };
   /** Both households' responses to THIS revision. */
@@ -132,6 +134,11 @@ export async function planView(tgUserId: number, weddingId?: string): Promise<Pl
   const me = await requireMember(tgUserId, weddingId);
   const cur = await currentRevision(me.wedding_id);
   if (!cur) return null;
+  const enquiries = await makeupEnquiries(me.wedding_id);
+  // A makeup artist who said no withdraws the options that depended on them.
+  const withdraw = (id: string, byMinute: number | undefined) =>
+    enquiries.some((enquiry) => enquiry.status === "withdrawn" && enquiry.proposalId === id && enquiry.readyBy === byMinute);
+  const timed = withConfirmedTimes(cur.snap).activities;
   const s = db();
   const [rev, hs, ms, ap] = await Promise.all([
     s.from("plan_revisions").select("id").eq("wedding_id", me.wedding_id).eq("revision", cur.revision).single(),
@@ -168,9 +175,17 @@ export async function planView(tgUserId: number, weddingId?: string): Promise<Pl
   return {
     revision: cur.revision,
     // Same times the compiler used (e.g. dinner moved by a confirmed dinner_start fact).
-    activities: withConfirmedTimes(cur.snap).activities,
+    activities: timed,
     facts: cur.snap.facts.map((f) => ({ id: f.id, kind: f.kind, functionKind: f.functionKind, value: f.value, status: f.status, wording: f.source.wording, channel: f.source.channel })),
-    result: cur.result,
+    makeupEnquiries: enquiries,
+    result: {
+      ...cur.result,
+      conditional: cur.result.conditional.filter((proposal) => !withdraw(proposal.id, proposal.missing.byMinute)),
+      proposals: cur.result.proposals.filter((proposal) => {
+        const dance = proposal.moves.find((move) => timed.some((activity) => activity.id === move.activityId && activity.kind === "dance"));
+        return !dance || !withdraw(proposal.id, dance.to.start - cur.flags.policy.makeupBufferMin);
+      }),
+    },
     policy: { version: cur.flags.policy.version, strategy: cur.flags.policy.strategy, source: cur.flags.source },
     responses,
     committed: last

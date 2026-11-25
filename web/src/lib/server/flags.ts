@@ -96,8 +96,8 @@ async function resolve(identity: string, traits: Record<string, string | boolean
 }
 
 /** Per-member flags: UI rollouts that may legitimately differ per household, language or role. */
-export function flagsFor(t: ViewerTraits): Promise<ResolvedFlags> {
-  return resolve(`wedding:${t.weddingId}:member:${t.memberId}`, {
+export function flagsFor(t: ViewerTraits, identifier = `wedding:${t.weddingId}:member:${t.memberId}`): Promise<ResolvedFlags> {
+  return resolve(identifier, {
     language: t.language,
     household_side: t.householdSide ?? "",
     role: t.role,
@@ -130,7 +130,7 @@ export async function killSwitch(name: "outbound_dialing_enabled" | "result_proc
 }
 
 /** Flags for a member row (wedding stage and household side are looked up). */
-export async function flagsForMember(me: { id: string; wedding_id: string; household_id: string | null; language: string; role: string; is_couple: boolean }) {
+export async function flagsForMember(me: { id: string; wedding_id: string; household_id: string | null; language: string; role: string; is_couple: boolean }, callId?: string) {
   const s = db();
   const [w, h] = await Promise.all([
     s.from("weddings").select("stage").eq("id", me.wedding_id).single(),
@@ -144,5 +144,5 @@ export async function flagsForMember(me: { id: string; wedding_id: string; house
     role: me.role,
     isCouple: me.is_couple,
     weddingStage: w.data?.stage ?? "brief",
-  });
+  }, callId ? `wedding:${me.wedding_id}:call:${callId}` : undefined);
 }
