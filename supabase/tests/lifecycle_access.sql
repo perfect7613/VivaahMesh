@@ -9,6 +9,7 @@ begin
     'public.reserve_guest_registry_item(text,uuid)',
     'public.record_guest_rsvp(text,uuid,boolean,integer,integer)',
     'public.cancel_lifecycle_vendor(uuid,uuid,uuid,text)',
+    'public.record_lifecycle_vendor_money(uuid,uuid,uuid,bigint,bigint)',
     'public.advance_wedding_stage(uuid,uuid,text)'
   ] loop
     assert not has_function_privilege('anon', rpc, 'EXECUTE');
@@ -75,13 +76,25 @@ begin
   assert record_guest_rsvp(a_token, a_function, false, 0, 0) = 'invalid_link';
   assert record_guest_rsvp(replacement_token, a_function, false, 0, 0) = 'ok';
 
-  insert into vendors (wedding_id, name, category) values (a, 'Caterer', 'caterer') returning id into a_vendor;
+  insert into vendors (wedding_id, name, category, status, committed_inr, authorized_by)
+  values (a, 'Caterer', 'caterer', 'accepted', 100, relative_parent) returning id into a_vendor;
+  assert record_lifecycle_vendor_money(a, a_vendor, relative_parent, 110, null) = 'forbidden';
+  assert record_lifecycle_vendor_money(a, a_vendor, a_couple, 110, null) = 'ok';
+  assert record_lifecycle_vendor_money(a, a_vendor, a_couple, 120, null) = 'ok';
+  assert record_lifecycle_vendor_money(a, a_vendor, a_couple, null, 25) = 'ok';
+  assert (select count(*) = 1 from tasks where vendor_id = a_vendor and invoice_discrepancy);
+  assert (select owner_member_id = relative_parent and escalated and status = 'open' and title !~ '[0-9]'
+    from tasks where vendor_id = a_vendor and invoice_discrepancy);
+  assert record_lifecycle_vendor_money(a, a_vendor, a_couple, 100, null) = 'ok';
+  assert (select status = 'done' from tasks where vendor_id = a_vendor and invoice_discrepancy);
+  assert record_lifecycle_vendor_money(a, a_vendor, a_couple, 80, null) = 'ok';
+  assert (select status = 'open' from tasks where vendor_id = a_vendor and invoice_discrepancy);
   assert cancel_lifecycle_vendor(a, a_vendor, b_couple, '') = 'forbidden';
   assert cancel_lifecycle_vendor(a, a_vendor, relative_parent, '') = 'forbidden';
   assert cancel_lifecycle_vendor(a, a_vendor, a_couple, 'Unavailable') = 'ok';
   assert cancel_lifecycle_vendor(a, a_vendor, a_couple, 'Unavailable') = 'unchanged';
   assert (select status = 'cancelled' and view_expires_at <= now() from vendors where id = a_vendor);
-  assert (select count(*) = 2 from tasks where vendor_id = a_vendor);
+  assert (select count(*) = 2 from tasks where vendor_id = a_vendor and not invoice_discrepancy);
 end;
 $$;
 

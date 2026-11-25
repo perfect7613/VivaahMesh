@@ -74,15 +74,17 @@ export async function lifecycleView(tgUserId: number, weddingId?: string) {
   const name = (id: string | null) => (ms.data ?? []).find((m) => m.id === id)?.display_name ?? null;
   const vendors = vs.data ?? [];
   const tasks = ts.data ?? [];
+  const spend = me.is_couple ? spendSummary(vendors) : null;
   return {
     me: { id: me.id, isCouple: me.is_couple, decider: decider(me) },
     stage: g.stage,
     next: nextStage(g.stage),
     open: g.open,
     flagSource: g.source,
+    taskOwners: decider(me) ? (ms.data ?? []).map((m) => ({ id: m.id, name: m.display_name })) : [],
     tasks: tasks.map((t) => ({
       id: t.id, title: t.title, kind: t.kind, status: t.status, due_date: t.due_date, escalated: t.escalated, seeded: t.seeded,
-      owner: name(t.owner_member_id) ?? t.owner_label, signedOffBy: name(t.signed_off_by),
+      owner: name(t.owner_member_id) ?? t.owner_label, evidence: t.evidence, escalationPath: t.escalation_path, signedOffBy: name(t.signed_off_by),
       canEdit: decider(me) || t.owner_member_id === me.id,
     })),
     vendors: vendors.map((v) => ({
@@ -93,7 +95,14 @@ export async function lifecycleView(tgUserId: number, weddingId?: string) {
       authorizedBy: name(v.authorized_by), authorized_at: v.authorized_at, accepted_at: v.accepted_at, paid_at: v.paid_at,
       viewUrl: decider(me) && v.status !== "cancelled" && Date.parse(v.view_expires_at) > now ? `/vendor/${v.view_token}` : null,
     })),
-    spend: me.is_couple ? spendSummary(vendors) : null,
+    spend: spend ? {
+      ...spend,
+      discrepancies: spend.discrepancies.map((item) => ({
+        ...item,
+        owner: name(tasks.find((t) => t.vendor_id === item.vendorId && t.invoice_discrepancy)?.owner_member_id
+          ?? vendors.find((v) => v.id === item.vendorId)?.authorized_by ?? null),
+      })),
+    } : null,
     openDeliverables: openAfterWedding(tasks).length,
     functions: fns.data ?? [],
     guests: (gs.data ?? []).map((x) => {
@@ -146,14 +155,15 @@ export async function lifecycleAction(tgUserId: number, weddingId: string | unde
       check(stageError);
       check((await s.from("tasks").insert({
         wedding_id: W, title, kind: a.kind === "deliverable" ? "deliverable" : "task", stage: w!.stage,
-        owner_member_id: assigned, owner_label: text("ownerLabel", 60) || null, due_date: dateField(a, "dueDate"),
+        owner_member_id: assigned, owner_label: text("ownerLabel", 60) || null, due_date: dateField(a, "dueDate"), evidence: text("evidence", 300) || null,
+        escalation_path: text("escalationPath", 120) || "Ask the couple",
       })).error);
       break;
     }
     case "task_status": {
       if (a.status !== "open" && a.status !== "done" && a.status !== "blocked") throw new HttpError(400, "bad_status");
       const update = s.from("tasks").update({
-        status: a.status, evidence: a.evidence !== undefined ? text("evidence", 300) || null : undefined,
+        status: a.status, escalated: a.status === "blocked" ? true : undefined, evidence: a.evidence !== undefined ? text("evidence", 300) || null : undefined,
         done_at: a.status === "done" ? new Date().toISOString() : null,
       }).eq("id", id("taskId")).eq("wedding_id", W);
       const { data, error } = await (decider(me) ? update : update.eq("owner_member_id", me.id)).select("id").maybeSingle();
@@ -211,19 +221,12 @@ export async function lifecycleAction(tgUserId: number, weddingId: string | unde
       const invoice = moneyField(a, "invoiceInr");
       const paid = moneyField(a, "paidInr");
       if (invoice === undefined && paid === undefined) throw new HttpError(400, "amount_required");
-      const { data, error } = await s.from("vendors").update({
-        invoice_inr: invoice, ...(paid !== undefined ? { paid_inr: paid, paid_at: new Date().toISOString() } : {}),
-      }).eq("id", v.id).eq("wedding_id", W).in("status", ["authorized", "accepted"]).select("id").maybeSingle();
+      const { data, error } = await s.rpc("record_lifecycle_vendor_money", {
+        p_wedding: W, p_vendor: v.id, p_member: me.id, p_invoice: invoice ?? null, p_paid: paid ?? null,
+      });
       check(error);
-      if (!data) throw new HttpError(409, "vendor_state_changed");
-      // #14: an invoice that differs from the approved amount gets an owner: whoever authorized the booking.
-      const inv = invoice ?? v.invoice_inr;
-      if (inv != null && v.committed_inr != null && inv !== v.committed_inr) {
-        const title = `Invoice from ${v.name} is ₹${(inv - v.committed_inr).toLocaleString("en-IN")} off the approved ₹${Number(v.committed_inr).toLocaleString("en-IN")}`;
-        const { data: open } = await s.from("tasks").select("id").eq("vendor_id", v.id).eq("kind", "incident").eq("status", "open").like("title", "Invoice from%").maybeSingle();
-        if (open) await s.from("tasks").update({ title }).eq("id", open.id);
-        else check((await s.from("tasks").insert({ wedding_id: W, title, kind: "incident", owner_member_id: v.authorized_by ?? me.id, vendor_id: v.id, escalated: true, stage: "closeout" })).error);
-      }
+      if (data === "forbidden") throw new HttpError(403, "couple_only");
+      if (data !== "ok") throw new HttpError(409, "vendor_state_changed");
       break;
     }
     case "cancel_vendor": {

@@ -180,3 +180,19 @@ export async function flagsForMember(me: { id: string; wedding_id: string; house
   });
 }
 
+
+/** Bridge rollout uses the household identity independently of individual members' UI flags. */
+export async function whatsappEnabled(weddingId: string, householdId: string, side: string) {
+  const fs = flagsmith();
+  if (!fs) return false;
+  try {
+    const flags = await fs.getIdentityFlags(`wedding:${weddingId}:household:${householdId}`, {
+      household_id: householdId,
+      household_side: side,
+    });
+    const flag = flags.getFlag("whatsapp_bridge_enabled");
+    return !flag.isDefault && flag.enabled;
+  } catch {
+    return false;
+  }
+}
