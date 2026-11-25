@@ -99,6 +99,7 @@ gh secret set OPS_SECRET                                    # heartbeat workflow
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Database (service key server-only) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET`, `APP_URL` | Bot + Mini App |
+| `BROWSER_AUTH_SECRET`, optional `TELEGRAM_LOGIN_CLIENT_ID` | Browser PWA sign-in |
 | `SARVAM_API_KEY` | Token Factory (GLM), STT, Translate, Bulbul |
 | `SARVAM_VOICE_API_KEY`, `SARVAM_ORG_ID`, `SARVAM_WORKSPACE_ID`, `SARVAM_APP_ID`, `SARVAM_APP_VERSION`, `SARVAM_CONNECTION_ID`, `SARVAM_AGENT_PHONE`, `DEMO_VENUE_PHONE` | Samvaad outbound call (only people who consented are ever called) |
 | `DEMO_REHEARSAL_CALLS=1` | Simulated, labelled venue answer until a number is connected |
@@ -110,9 +111,17 @@ gh secret set OPS_SECRET                                    # heartbeat workflow
 | `CALL_RESULT_PROCESSOR`, `NUDGEBEE_EVENT_WEBHOOK_URL` | Azure result worker mode and incident workflow |
 | `OPS_SECRET` | Heartbeat, replay and recovery endpoints |
 
+### Browser sign-in at `/tg`
+
+1. Apply the Supabase migrations and set `APP_URL` to the canonical HTTPS origin. Set `BROWSER_AUTH_SECRET` to a separate random value from `openssl rand -hex 32`.
+2. In BotFather, select the same bot used by the Mini App, open **Login Widget**, and add the origin to **Allowed URLs**. Keep the default RS256 signing algorithm. If the configured Client ID differs from the bot token’s numeric prefix, set `TELEGRAM_LOGIN_CLIENT_ID` to the ID displayed by BotFather.
+3. In Supabase Auth, enable the email provider, allow new signups, and add the exact `<APP_URL>/api/browser-auth/email` redirect URL. Keep the email templates’ `{{ .ConfirmationURL }}` links and configure SMTP for delivery to family members. Open each link in the browser that requested it.
+
+The browser saves the most recent wedding schedule on the device for up to 24 hours. Signing out or switching accounts clears that copy. See the [browser PWA test steps](docs/TESTING.md#browser-pwa).
+
 ## Security model
 
-- The browser never sees a server key. Every API route verifies Telegram `initData` (HMAC) on the server. The bot webhook checks Telegram's secret header, and each Sarvam callback carries a per-call HMAC token.
+- The browser never sees a server key. Wedding APIs authenticate Telegram `initData` or a signed browser session issued after verification by Telegram Login or Supabase Auth. The bot webhook checks Telegram's secret header, and each Sarvam callback carries a per-call HMAC token.
 - RLS is on for every table with no anon policies. Budgets are couple-only, and household-private notes are loaded only into that household's direct-chat context. The shared activity feed contains status and delivery counts.
 - A public search sends only the terms explicitly entered after `/search` to the provider. Enter public terms only. Search runs receive no wedding data or chat history, and Firecrawl page reads are limited to results from the same search.
 

@@ -1,12 +1,13 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tr, type Lang } from "@/lib/i18n";
-import { ApiError, api, haptic } from "@/lib/client/telegram";
+import { ApiError, api, haptic, getWebApp } from "@/lib/client/telegram";
 import { useWeddingLive } from "@/lib/client/live";
 import { fmtMinute } from "@/lib/compiler/compile";
 import type { Activity, BlockingItem, CompileResult, FactKind, Reason, Requester, Resolver } from "@/lib/compiler/types";
 import { formatINR } from "@/components/ui";
 import { AskMakeupArtist, MakeupReplies, type MakeupEnquiryView } from "./MakeupEnquiry";
+import { saveOfflinePlan } from "@/lib/client/offline-plan";
 import type { View } from "./types";
 
 type Stance = "agree" | "prefer_other" | "object";
@@ -80,6 +81,14 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [load]);
+
+  useEffect(() => {
+    if (getWebApp() || !plan) return;
+    saveOfflinePlan(view, [...plan.activities].sort((a, b) => a.start - b.start).map((item) => ({
+      title: item.title,
+      time: `${fmtMinute(item.start)} – ${fmtMinute(item.end)}`,
+    })));
+  }, [plan, view]);
 
   async function seed() {
     setSeeding(true);

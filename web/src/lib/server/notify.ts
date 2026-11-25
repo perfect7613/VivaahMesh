@@ -18,7 +18,7 @@ export async function notifyWedding(weddingId: string, actorMemberId: string) {
     s.from("members").select("display_name, household:households(name)")
       .eq("wedding_id", weddingId).eq("id", actorMemberId).maybeSingle(),
     s.from("members").select("tg_user_id, language").eq("wedding_id", weddingId)
-      .neq("id", actorMemberId).not("tg_user_id", "is", null).order("created_at").limit(1000),
+      .neq("id", actorMemberId).gt("tg_user_id", 0).order("created_at").limit(1000),
   ]);
   if (!actor || !recipients) return;
   const family = (actor.household as unknown as { name: string } | null)?.name ?? "";

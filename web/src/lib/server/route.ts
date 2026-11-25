@@ -1,14 +1,15 @@
 import "server-only";
-import { viewerFromRequest, type TelegramUser } from "./telegram-auth";
+import { authenticatedViewer } from "./browser-auth";
+import type { TelegramUser } from "./telegram-auth";
 import { HttpError } from "./weddings";
 
-/** Wraps a route handler: authenticates the Telegram viewer and maps errors to JSON. */
+/** Wraps a route handler: authenticates the wedding viewer and maps errors to JSON. */
 export function authed<C = unknown>(
   fn: (req: Request, viewer: TelegramUser, ctx: C) => Promise<unknown>,
 ) {
   return async (req: Request, ctx: C) => {
     const headers = { "cache-control": "private, no-store" };
-    const viewer = viewerFromRequest(req);
+    const viewer = await authenticatedViewer(req);
     if (!viewer) return Response.json({ error: "unauthorized" }, { status: 401, headers });
     try {
       const out = await fn(req, viewer, ctx);
