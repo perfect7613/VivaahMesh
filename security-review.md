@@ -38,7 +38,7 @@ Apply the new Supabase migrations before deploying the matching web app and work
 Checks completed on the reviewed source:
 
 - A clean Node 22 installation, ESLint, TypeScript and the optimized Next.js build passed. Vitest passed 142 unit tests. The PostgreSQL/PostgREST suite passed both integration tests and its SQL privilege and concurrency assertions.
-- npm audit returned zero advisories. OSV-Scanner reported zero matches from the lockfile. Trivy reported zero findings in the production npm lockfile scan and in the worker Dockerfile and Kubernetes Deployment configuration. The replacement Alpine worker base on Linux AMD64 had zero high or critical OS package findings.
+- npm audit returned zero advisories. OSV-Scanner reported zero matches from the lockfile. Trivy reported zero findings in the production npm lockfile scan and in the worker Dockerfile and Kubernetes Deployment configuration. The replacement Alpine worker base on Linux AMD64 had zero high or critical OS package findings. A second scan included language packages and found ten high-severity matches inside the base image’s global npm CLI. The Dockerfile removes the global package manager and its cache after installation. CI checks the runtime filesystem.
 - Gitleaks scanned the tracked source and reachable commit history with default detectors and an additional NudgeBee key pattern. Neither scan reported a secret. Actionlint passed on all three workflows.
 - HTTP checks of the production build confirmed private, no-store responses, no referrer, and frame embedding blocked on the four bearer-page families. The Telegram script loaded on the Mini App entry alone among these tested pages. An unauthenticated request to the member endpoint returned 401.
 

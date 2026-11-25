@@ -47,4 +47,4 @@ jobs:
       - name: Verify the worker runtime on a read-only filesystem
         run: |
           docker run --rm --read-only --env TSX_DISABLE_CACHE=1 --entrypoint node vivaahmesh-result-worker:ci \
-            --conditions=react-server --import tsx -e "const { processCallResult } = require('./src/lib/server/calls.ts'); if (typeof processCallResult !== 'function' || process.getuid() === 0) process.exit(1)"
+            --conditions=react-server --import tsx -e "const { processCallResult } = require('./src/lib/server/calls.ts'); if (require('node:fs').existsSync('/usr/local/lib/node_modules') || typeof processCallResult !== 'function' || process.getuid() === 0) process.exit(1)"
