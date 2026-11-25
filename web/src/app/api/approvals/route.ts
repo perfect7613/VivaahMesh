@@ -9,6 +9,6 @@ export const maxDuration = 60;
 export const POST = authed(async (req, viewer) => {
   const b = (await req.json().catch(() => ({}))) as { weddingId?: string; proposalId?: string; snapshotRevision?: number };
   const weddingId = await approveProposal(viewer.id, { weddingId: b.weddingId, proposalId: String(b.proposalId ?? ""), snapshotRevision: Number(b.snapshotRevision) });
-  after(() => runAgent(weddingId, "manual").catch((e) => console.error("agent after approval", e)));
+  after(() => runAgent(weddingId, "approval").catch((e) => console.error("agent after approval", e)));
   return { plan: await planView(viewer.id, weddingId) };
 });
