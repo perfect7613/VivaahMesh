@@ -8,13 +8,14 @@ import { dispatchStoredResult, processCallResult, storeCallResult } from "@/lib/
 import { approveRevision, planView, seedDemoPlan } from "@/lib/server/plan";
 import { db } from "@/lib/server/supabase";
 
-const incident = vi.hoisted(() => ({ paused: true, remoteAvailable: true }));
+const incident = vi.hoisted(() => ({ paused: true, remoteAvailable: true, recordMetrics: vi.fn() }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/server/flags", async (importOriginal) => {
   const flags = await importOriginal<typeof import("@/lib/server/flags")>();
   return {
     ...flags,
+    recordVendorMetrics: incident.recordMetrics,
     killSwitch: async (name: string, requireRemote = false) => {
       if (requireRemote && !incident.remoteAvailable) throw new Error("Remote flags unavailable");
       return name === "result_processing_paused" && incident.paused;
@@ -29,6 +30,7 @@ vi.mock("@/lib/server/telegram-bot", async (importOriginal) => {
 
 afterEach(() => {
   incident.remoteAvailable = true;
+  incident.recordMetrics.mockClear();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -112,12 +114,13 @@ it("replays stored evidence across concurrent ops requests and updates both hous
 
   // The provider attempt was already authorized and opened before the incident.
   const providerId = "recovery-fixture-attempt";
+  const assignment = { variant: "baseline", version: "v1", experiment: { id: 37, key: "control" } };
   const call = checked(await client.from("calls").insert({
     wedding_id: wedding.id, function_kind: "sangeet", fact_kind: "music_cutoff",
     recipient_role: "venue_owner", recipient_name: "Consenting fixture venue", recipient_phone: "",
     purpose: "Confirm when amplified music must stop at the Sangeet",
     status: "dialing", provider_attempt_id: providerId, language: "English",
-    authorized_by: author.id, flags: { channel: "phone" },
+    authorized_by: author.id, flags: { channel: "phone", caller_assignment: assignment },
   }).select("id").single());
 
   // Approval applies its moves to the timeline. Make the venue's new cutoff five minutes
@@ -207,6 +210,8 @@ it("replays stored evidence across concurrent ops requests and updates both hous
   expect([(await response.json()).results[call.id], workerOutcome].sort()).toEqual(["already", "applied"]);
   expect(await claim()).toBeNull();
   expect((await (await replay(request())).json()).results).toEqual({ [call.id]: "already" });
+
+  expect(incident.recordMetrics.mock.calls).toEqual([[call.id, assignment, { confirmed: 1, followUps: 0 }]]);
 
   const [afterA, afterB] = await Promise.all([planView(memberA, wedding.id), planView(memberB, wedding.id)]);
   if (!afterA || !afterB) throw new Error("Expected a recovered plan for both households");

@@ -66,6 +66,10 @@ Segments: `marathi_speakers` (language = mr → Bulbul recap), `household_a` (co
 
 Caller-prompt experiment (5 scripted scenarios × 2 variants, observed counts, not a statistical claim): [`docs/caller-experiment.md`](docs/caller-experiment.md), reproduce with `cd web && npm run experiment`.
 
+To publish the ten scripted calls, use a dedicated Flagsmith replay environment with a connected warehouse and a running `caller_prompt` experiment. Use the flag's own value `baseline` as control. Give the `clarify_scope` variation a key, including on existing projects, and set a 50/50 experiment split. Define Sum metrics on `caller_facts_confirmed`, `caller_follow_up_count` and `caller_unsupported_changes`. With its environment key in `FLAGSMITH_EXPERIMENT_REPLAY_KEY`, run `npm run experiment:publish -- <unique-run-id>` from `web/`. A complete run reports 10 exposed identities and 40 accepted events. Use a fresh run ID for each independent sample. After a timeout, check intake before repeating, since the warehouse may already have received events.
+
+Live exposures use a pinned call identity and are recorded when Sarvam accepts an outbound attempt or issues a consented browser session. Completed results report observed confirmations and follow-up counts, including zeros for unanswered calls. Unsupported changes require known ground truth and are scored in the scripted replay. The event payload contains counts and experiment metadata. [Flagsmith experiment setup](https://docs.flagsmith.com/experimentation/run-an-experiment)
+
 Create everything with `node web/scripts/flagsmith-setup.mjs`. Flip a flag live with `node web/scripts/flag.mjs <flag> on|off|key=value`.
 
 ### NudgeBee: incident and approval-gated recovery
@@ -73,6 +77,12 @@ The Azure worker leases saved vendor answers from Postgres. A stopped worker lea
 
 Existing inline deployments can keep their API-key incident reporting, agent-failure alerts and approved recovery endpoint. The Azure workflows use a separate integration webhook.
 
+
+## Seed a rehearsal wedding
+
+With the migrations applied to your rehearsal project, set `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `TELEGRAM_BOT_USERNAME` in the server environment. From `web/` run `npm run seed:wedding -- <organizer-telegram-id>` using Node 22. The organizer is the first partner. Share each of the two household links with its family and the single-use couple invitation with the other partner. These private links grant access and should stay out of build logs.
+
+The seed creates a fictional ₹15 lakh, 350-guest wedding with Sangeet, Ceremony and Reception. Open the Sangeet plan to see the five-minute video overrun and unresolved venue cutoff. Rerunning for the same organizer returns the same wedding and preserves subsequent edits. Seeded weddings use a simulated venue even when Sarvam and a real phone number are configured. The outbound Flagsmith switch still controls whether the rehearsal can start. The simulated answer updates the plan with a rehearsal label and stays in the app. To deliberately exercise the live phone or browser path with a consenting participant, set `DEMO_SEEDED_LIVE_CALLS=1` on the app server and configure the relevant channel. Clear the setting when the session ends.
 
 ## Live test
 

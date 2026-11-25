@@ -82,7 +82,7 @@ for (const [name, description, enabled, value, mv] of FEATURES) {
   if (!f) {
     f = await api("POST", `/projects/${project.id}/features/`, {
       name, description, default_enabled: enabled, initial_value: value, type: mv ? "MULTIVARIATE" : "STANDARD",
-      multivariate_options: (mv ?? []).map(([v, pct]) => ({ type: "unicode", string_value: v, default_percentage_allocation: pct })),
+      multivariate_options: (mv ?? []).map(([v, pct]) => ({ type: "unicode", key: v, string_value: v, default_percentage_allocation: pct })),
     });
   }
   features[name] = f;
