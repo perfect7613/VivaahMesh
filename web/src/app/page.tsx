@@ -3,6 +3,7 @@ import { BorderBeam } from "@/components/ui/border-beam";
 import { FlowBeams } from "@/components/landing/FlowBeams";
 import { HeroPhoneLazy } from "@/components/landing/HeroPhoneLazy";
 import { WhatsAppGroup } from "@/components/landing/WhatsAppGroup";
+import { GroupVsPlan } from "@/components/landing/GroupVsPlan";
 import { TelegramIcon, VivaahMark, WhatsAppIcon } from "@/components/landing/BrandIcons";
 
 const BOT = process.env.TELEGRAM_BOT_USERNAME ?? "vivaah_bot";
@@ -50,7 +51,8 @@ export default function Landing() {
           <span className="font-[family-name:var(--font-gloock)] text-xl">VivaahMesh</span>
         </a>
         <div className="flex items-center gap-5 text-[15px]">
-          <a href="#how" className="hidden text-[#6b5d50] hover:text-[#2a1f14] sm:inline">How it works</a>
+          <a href="#why" className="hidden text-[#6b5d50] hover:text-[#2a1f14] sm:inline">Why not a group chat</a>
+          <a href="#how" className="hidden text-[#6b5d50] hover:text-[#2a1f14] md:inline">How it works</a>
           <a href="#whatsapp" className="hidden text-[#6b5d50] hover:text-[#2a1f14] sm:inline">WhatsApp</a>
           <a href={BOT_URL} className="pressable flex items-center gap-2 rounded-full bg-[#229ED9] px-4 py-2 font-medium text-white">
             <TelegramIcon size={16} /> Open bot
@@ -71,7 +73,7 @@ export default function Landing() {
             <span className="text-[#b3261e]">one wedding plan.</span>
           </h1>
           <p className="mt-6 max-w-xl text-[18px] leading-relaxed text-[#5a4c40]">
-            Aai sends a voice note in Marathi. The groom&apos;s mama types in Hindi. VivaahMesh puts both requests into one plan, keeps the name of whoever asked, and tells each family what changed in its own language.
+            Aai wants dinner at 8:30. The cousins&apos; dance ends at 10:05. The venue never said when the music stops. VivaahMesh spots the clash, calls the venue to ask, and shows both families the options, each with the name of whoever asked for what.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <a
@@ -110,6 +112,9 @@ export default function Landing() {
           <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-[#fffaf0]" />
         </div>
       </section>
+
+      {/* ---------- Why not just a WhatsApp group ---------- */}
+      <GroupVsPlan />
 
       {/* ---------- How it works ---------- */}
       <section id="how" className="mx-auto max-w-6xl scroll-mt-10 px-5 py-20 sm:px-8">
