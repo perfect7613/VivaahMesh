@@ -113,3 +113,14 @@ Flip each flag below in Flagsmith, then reopen or refresh the plan:
 ## 11. Clean up
 
 Delete the test wedding in Supabase (`weddings` table; everything else cascades). Reset any flags you changed.
+
+
+## Browser PWA
+
+Use the [browser sign-in setup](../README.md#browser-sign-in-at-tg) on a test deployment, or use a local Supabase project with its development mail inbox and run `npm run build && npm start` to enable the service worker.
+
+1. Open a web invite `/tg?join=<code>` in Chrome before signing in. Request an email link, open it in the same browser, and finish joining. The invite should survive sign-in. The link should show a retry message in a different browser without the original request.
+2. In a separate browser profile, use **Continue with Telegram** with the same account used by the Mini App. Its existing weddings should appear. Reopen the Mini App and confirm it still opens directly.
+3. On Android Chrome, finish onboarding and tap **Install VivaahMesh**. In iOS Safari, confirm the Share → **Add to Home Screen** hint appears after onboarding. After dismissal or install, revisit the page and confirm the prompt stays dismissed.
+4. Open a wedding with a schedule. Go offline and reload `/tg`. Confirm the last schedule and **You’re offline** appear. An invite link or a link to a different wedding should ask you to reconnect. Inspect the application cache and confirm it contains the public shell and static assets only.
+5. Reconnect, sign out, and reload offline. Confirm the saved schedule is gone. Run Lighthouse’s PWA category (Lighthouse 11) against the production build. In current Chrome the Application panel also reports manifest installability.

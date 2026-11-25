@@ -89,5 +89,6 @@ export async function shareInvite(url: string, text: string): Promise<"shared" |
 }
 
 export function inviteLink(botUsername: string, code: string) {
-  return `https://t.me/${botUsername}?start=join_${code}`;
+  if (window.Telegram?.WebApp?.initData) return `https://t.me/${botUsername}?start=join_${code}`;
+  return new URL(`/tg?join=${encodeURIComponent(code)}`, window.location.origin).href;
 }

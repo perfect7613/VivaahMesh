@@ -452,7 +452,7 @@ async function notifyCallResult(weddingId: string, minute: number | null, confir
   const time = confirmed && minute !== null ? `${Math.floor(minute / 60) % 12 || 12}:${String(minute % 60).padStart(2, "0")} ${minute >= 720 ? "pm" : "am"}` : null;
   await Promise.allSettled(
     (members ?? [])
-      .filter((m) => m.tg_user_id)
+      .filter((m) => Number(m.tg_user_id) > 0)
       .map((m) => {
         const lang = base(pickLang(m.language));
         const tt = time ? escapeHtml(time) : null;

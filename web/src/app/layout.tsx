@@ -14,6 +14,7 @@ export const metadata: Metadata = {
   description: "Both families, one plan, each in their own language. Start on Telegram in a minute.",
   applicationName: "MahiWay",
   appleWebApp: { capable: true, title: "MahiWay", statusBarStyle: "default" },
+  icons: { apple: "/icon-192.png" },
 };
 
 export const viewport: Viewport = {

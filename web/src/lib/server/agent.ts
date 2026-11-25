@@ -421,7 +421,7 @@ async function runTool(ctx: Ctx, name: string, a: Record<string, string>): Promi
   if (ctx.sent.length >= MAX_MESSAGES) return "refused: message limit for this run reached";
   if (audience === "sender" && !ctx.senderMemberId) return "refused: no sender on this trigger";
   const recipients = ctx.members.filter((m) => {
-    if (!m.tg_user_id) return false;
+    if (Number(m.tg_user_id) <= 0) return false;
     switch (audience) {
       case "sender": return m.id === ctx.senderMemberId;
       case "everyone": return true;

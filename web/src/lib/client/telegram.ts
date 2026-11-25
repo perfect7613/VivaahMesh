@@ -66,17 +66,23 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+export const browserAuthExpired = "vivaahmesh:browser-auth-expired";
+
+export async function api<T>(path: string, init?: { method?: string; body?: unknown; signal?: AbortSignal }): Promise<T> {
   const wa = getWebApp();
   const form = init?.body instanceof FormData ? init.body : null;
   const headers: Record<string, string> = form ? {} : { "content-type": "application/json" };
   if (wa) headers.authorization = `tma ${wa.initData}`;
-  else headers["x-dev-user"] = devUser();
+  else if (process.env.NODE_ENV !== "production") headers["x-dev-user"] = devUser();
   const res = await fetch(path, {
     method: init?.method ?? (init?.body ? "POST" : "GET"),
     headers,
+    signal: init?.signal,
     body: form ?? (init?.body ? JSON.stringify(init.body) : undefined),
   });
+  if (!wa && res.status === 401 && path.startsWith("/api/") && !path.startsWith("/api/me")) {
+    window.dispatchEvent(new Event(browserAuthExpired));
+  }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError((json as { error?: string }).error ?? `HTTP ${res.status}`, res.status, json);
   return json as T;
