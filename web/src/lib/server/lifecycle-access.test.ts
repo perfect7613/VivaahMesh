@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { guestView, lifecycleAction, lifecycleView, vendorRunSheet } from "./lifecycle";
 
-const { from, membership } = vi.hoisted(() => ({
+const { from, membership, wedding } = vi.hoisted(() => ({
   from: vi.fn(),
+  wedding: { id: "wedding", stage: "day_of", partner_a: "Ana", partner_b: "Ben", city: "Pune", wedding_date: "2027-01-20", budget_inr: 12345 },
   membership: { id: "member", wedding_id: "wedding", household_id: "family-a", role: "parent", is_couple: false, is_parent_delegate: false },
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("next/server", () => ({ after: vi.fn() }));
 vi.mock("./supabase", () => ({ db: () => ({ from }) }));
-vi.mock("./flags", () => ({ flagsForMember: async () => ({ source: "safe_defaults", features: {} }) }));
-vi.mock("./agent", () => ({ runAgent: vi.fn() }));
+vi.mock("./flags", () => ({
+  flagsForMember: async () => ({ source: "safe_defaults", features: {} }),
+  weddingFlags: async () => ({ source: "safe_defaults", features: {} }),
+}));
 vi.mock("./weddings", () => ({
   HttpError: class extends Error {
     constructor(public status: number, message: string) { super(message); }
@@ -51,6 +53,8 @@ function query(rows: Record<string, unknown>[]) {
     },
     order: () => builder,
     eq: (key: string, value: unknown) => filter(key, (actual) => actual === value),
+    in: (key: string, values: unknown[]) => filter(key, (actual) => values.includes(actual)),
+    not: (key: string, _operator: string, value: unknown) => filter(key, (actual) => actual !== value),
     neq: (key: string, value: unknown) => filter(key, (actual) => actual !== value),
     gt: (key: string, value: string) => filter(key, (actual) => typeof actual === "string" && actual > value),
     single: async () => ({ data: get().data[0], error: null }),
@@ -63,8 +67,9 @@ function query(rows: Record<string, unknown>[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   membership.is_parent_delegate = false;
+  wedding.stage = "day_of";
   const rows: Record<string, Record<string, unknown>[]> = {
-    weddings: [{ id: "wedding", stage: "booking", partner_a: "Ana", partner_b: "Ben", city: "Pune", wedding_date: "2027-01-20", budget_inr: 12345 }],
+    weddings: [wedding],
     guests: [
       { id: "own", name: "Own guest", wedding_id: "wedding", household_id: "family-a", invited_by: "member", rsvp_token: active, rsvp_expires_at: future },
       { id: "same", name: "Same household guest", wedding_id: "wedding", household_id: "family-a", invited_by: "another", rsvp_token: "shared", rsvp_expires_at: future },
@@ -117,6 +122,9 @@ describe("lifecycle access", () => {
     for (const invalid of [old, expired, revoked, "malformed"]) {
       await expect(vendorRunSheet(invalid)).rejects.toMatchObject({ status: 404 });
     }
+    wedding.stage = "booking";
+    await expect(vendorRunSheet(active)).rejects.toMatchObject({ status: 404 });
+    wedding.stage = "day_of";
     const sheet = await vendorRunSheet(active);
     expect(sheet.functions).toMatchObject([{ kind: "sangeet", timeline: [{ title: "Dance", start: 1, end: 2 }] }]);
     expect(sheet.functions[0].timeline[0]).not.toHaveProperty("requestedBy");

@@ -64,12 +64,22 @@ export interface MakeupOption {
   readyBy: Minute;
 }
 
+export interface VendorReplacement {
+  vendorId: string;
+  vendorName: string;
+  cancelledVendorId: string;
+  cancelledVendorName: string;
+  functions: string[];
+  seeded: boolean;
+}
+
 export interface Snapshot {
   weddingId: string;
   revision: number;
   activities: Activity[];
   facts: Fact[];
   withdrawnMakeupOptions?: MakeupOption[];
+  vendorReplacements?: VendorReplacement[];
 }
 
 export interface Conflict {
@@ -90,6 +100,7 @@ export interface Move {
 export interface Proposal {
   id: string;
   moves: Move[];
+  vendorReplacement?: VendorReplacement;
   /** Null = "Price pending": never invent a cost. */
   costDeltaInr: number | null;
   satisfies: string[]; // human-readable (English) family priorities preserved, for logs

@@ -1,11 +1,9 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { after } from "next/server";
 import { db } from "./supabase";
 import { canManageWedding, HttpError, logEvent, memberships, pingWedding } from "./weddings";
 import { dateField, integerField, stringList, textField, uuidField } from "./wedding-input";
-import { flagsForMember } from "./flags";
-import { runAgent } from "./agent";
+import { flagsForMember, weddingFlags } from "./flags";
 import { STAGES, areaOpen, nextStage, openAfterWedding, rsvpCounts, spendSummary, type Area } from "../lifecycle";
 
 type Member = Awaited<ReturnType<typeof memberships>>[number];
@@ -88,12 +86,13 @@ export async function lifecycleView(tgUserId: number, weddingId?: string) {
       canEdit: decider(me) || t.owner_member_id === me.id,
     })),
     vendors: vendors.map((v) => ({
-      id: v.id, name: v.name, category: v.category, origin: v.origin, functions: v.functions, status: v.status, seeded: v.seeded,
+      id: v.id, name: v.name, category: v.category, origin: v.origin, functions: v.functions, status: v.status, seeded: v.seeded || v.cancellation_simulated, replacesVendorId: v.replaces_vendor_id,
+      replacementContact: decider(me) ? v.replacement_contact : null,
       quote_inr: me.is_couple ? v.quote_inr : null,
       planned_inr: me.is_couple ? v.planned_inr : null, committed_inr: me.is_couple ? v.committed_inr : null,
       invoice_inr: me.is_couple ? v.invoice_inr : null, paid_inr: me.is_couple ? v.paid_inr : null,
       authorizedBy: name(v.authorized_by), authorized_at: v.authorized_at, accepted_at: v.accepted_at, paid_at: v.paid_at,
-      viewUrl: decider(me) && v.status !== "cancelled" && Date.parse(v.view_expires_at) > now ? `/vendor/${v.view_token}` : null,
+      viewUrl: g.open.day_of && decider(me) && (v.status === "authorized" || v.status === "accepted") && Date.parse(v.view_expires_at) > now ? `/vendor/${v.view_token}` : null,
     })),
     spend: spend ? {
       ...spend,
@@ -124,7 +123,7 @@ export async function lifecycleAction(tgUserId: number, weddingId: string | unde
   const requireCouple = () => { if (!me.is_couple) throw new HttpError(403, "couple_only"); };
   const requireDecider = () => { if (!decider(me)) throw new HttpError(403, "parents_or_couple_only"); };
   const vendor = async () => {
-    const { data, error } = await s.from("vendors").select("id, name, quote_inr, status, invoice_inr, committed_inr, authorized_by").eq("id", id("vendorId")).eq("wedding_id", W).maybeSingle();
+    const { data, error } = await s.from("vendors").select("id, name, quote_inr, status, invoice_inr, committed_inr, authorized_by, replaces_vendor_id").eq("id", id("vendorId")).eq("wedding_id", W).maybeSingle();
     check(error);
     if (!data) throw new HttpError(404, "no_vendor");
     return data;
@@ -200,6 +199,7 @@ export async function lifecycleAction(tgUserId: number, weddingId: string | unde
       await requireArea(me, "booking");
       const v = await vendor();
       const authorizing = a.type === "authorize_vendor";
+      if (authorizing && v.replaces_vendor_id) throw new HttpError(409, "approve_replacement_in_plan");
       const prior = authorizing ? "shortlisted" : "authorized";
       if (v.status !== prior) throw new HttpError(409, "vendor_state_changed");
       const override = authorizing ? moneyField(a, "committedInr") : undefined;
@@ -231,19 +231,36 @@ export async function lifecycleAction(tgUserId: number, weddingId: string | unde
     }
     case "cancel_vendor": {
       requireDecider();
+      await requireArea(me, "day_of");
       const v = await vendor();
-      const { data, error } = await s.rpc("cancel_lifecycle_vendor", { p_wedding: W, p_vendor: v.id, p_member: me.id, p_reason: text("reason", 120) });
+      const { data, error } = await s.rpc("cancel_lifecycle_vendor", { p_wedding: W, p_vendor: v.id, p_member: me.id, p_reason: text("reason", 120), p_simulated: a.simulated === true });
       check(error);
       if (data === "forbidden") throw new HttpError(403, "parents_or_couple_only");
-      if (data === "ok") {
-        after(() => runAgent(W, "manual").catch(() => console.error("agent after cancellation")));
-      }
+      break;
+    }
+    case "propose_replacement": {
+      requireDecider();
+      await requireArea(me, "day_of");
+      const replacementName = text("name", 80);
+      if (!replacementName) throw new HttpError(400, "name_required");
+      const contact = text("contact", 300);
+      if (!contact) throw new HttpError(400, "contact_required");
+      const quote = moneyField(a, "quoteInr");
+      if (quote !== undefined) requireCouple();
+      const { data, error } = await s.rpc("propose_lifecycle_replacement", {
+        p_wedding: W, p_vendor: id("vendorId"), p_member: me.id,
+        p_name: replacementName, p_contact: contact, p_run_sheet: text("runSheet", 2000) || null, p_quote: quote ?? null,
+      });
+      check(error);
+      if (data === "forbidden") throw new HttpError(403, "replacement_forbidden");
+      if (data !== "ok") throw new HttpError(409, String(data));
       break;
     }
     case "rotate_vendor_link": {
       requireDecider();
+      await requireArea(me, "day_of");
       const { data, error } = await s.from("vendors").update({ view_token: bearerToken(), view_expires_at: expiryDate() })
-        .eq("id", id("vendorId")).eq("wedding_id", W).neq("status", "cancelled").select("id").maybeSingle();
+        .eq("id", id("vendorId")).eq("wedding_id", W).in("status", ["authorized", "accepted"]).select("id").maybeSingle();
       check(error);
       if (!data) throw new HttpError(404, "no_vendor");
       break;
@@ -338,15 +355,19 @@ export async function vendorRunSheet(token: string) {
   const s = db();
   validateToken(token);
   const { data: v, error } = await s.from("vendors").select("id, wedding_id, name, category, functions, status, run_sheet")
-    .eq("view_token", token).neq("status", "cancelled").gt("view_expires_at", new Date().toISOString()).maybeSingle();
+    .eq("view_token", token).in("status", ["authorized", "accepted"]).gt("view_expires_at", new Date().toISOString()).maybeSingle();
   check(error);
   if (!v) throw new HttpError(404, "invalid_link");
   const [w, fns, ap] = await Promise.all([
-    s.from("weddings").select("partner_a, partner_b, wedding_date, city").eq("id", v.wedding_id).single(),
+    s.from("weddings").select("partner_a, partner_b, wedding_date, city, stage").eq("id", v.wedding_id).single(),
     s.from("functions").select("kind, title, on_date, starts_at, venue").eq("wedding_id", v.wedding_id).order("sort"),
-    s.from("approvals").select("function_kind, approved_activities, created_at").eq("wedding_id", v.wedding_id).order("created_at", { ascending: false }),
+    s.from("approvals").select("function_kind, approved_activities, created_at").eq("wedding_id", v.wedding_id).not("approved_activities", "is", null).order("created_at", { ascending: false }),
   ]);
   for (const result of [w, fns, ap]) check(result.error);
+  const flags = await weddingFlags(v.wedding_id, w.data!.stage);
+  const on = { stage_day_of: flags.features.stage_day_of?.enabled ?? false };
+  if (!areaOpen("day_of", w.data!.stage, { source: flags.source, on })) throw new HttpError(404, "invalid_link");
+  const { partner_a, partner_b, wedding_date, city } = w.data!;
   const functions = fns.data ?? [];
   const knownKinds = new Set(functions.filter((f) => f.kind !== "other").map((f) => f.kind));
   const assigned = new Set(v.functions as string[]);
@@ -360,7 +381,7 @@ export async function vendorRunSheet(token: string) {
   }
   return {
     vendor: { name: v.name, category: v.category, status: v.status, runSheet: v.run_sheet },
-    wedding: w.data,
+    wedding: { partner_a, partner_b, wedding_date, city },
     functions: mine.map((f) => ({ ...f, timeline: (f.kind === "other" ? [] : approved.get(f.kind) ?? []).map((x) => ({ title: x.title, start: x.start, end: x.end })) })),
   };
 }

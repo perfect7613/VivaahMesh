@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { tr, type Lang } from "@/lib/i18n";
+import { base, tr, type Lang } from "@/lib/i18n";
 import { ApiError, api, haptic } from "@/lib/client/telegram";
 import { useWeddingLive } from "@/lib/client/live";
 import { fmtMinute } from "@/lib/compiler/compile";
-import type { Activity, BlockingItem, CompileResult, FactKind, Reason, Requester, Resolver } from "@/lib/compiler/types";
+import type { Activity, BlockingItem, CompileResult, FactKind, Reason, Requester, Resolver, VendorReplacement } from "@/lib/compiler/types";
 import { formatINR } from "@/components/ui";
 import { AskMakeupArtist, MakeupReplies, type MakeupEnquiryView } from "./MakeupEnquiry";
 import type { View } from "./types";
@@ -25,10 +25,11 @@ interface Plan {
     proposalId: string;
     approvedBy: string;
     approvedAt: string;
-    recap: { revision: number; moves: { activityId: string; title: string; from: { start: number; end: number }; to: { start: number; end: number } }[]; costDeltaInr: number | null; reasons: Reason[] };
+    recap: { revision: number; moves: { activityId: string; title: string; from: { start: number; end: number }; to: { start: number; end: number } }[]; costDeltaInr: number | null; reasons: Reason[]; vendorReplacement?: VendorReplacement };
   } | null;
   canRespond: boolean;
   canApprove: boolean;
+  replacementQuotes?: Record<string, number | null>;
   makeupEnquiries?: MakeupEnquiryView[];
 }
 
@@ -152,6 +153,19 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
   const label = (c: string) => t.constraintLabels[c] ?? c;
   const fnTitle = (kind: string) => view.functions.find((f) => f.kind === kind)?.title ?? kind;
 
+  const replacementLabel = (r: VendorReplacement) =>
+    ({
+      en: `${r.vendorName} replaces ${r.cancelledVendorName}`,
+      hi: `${r.cancelledVendorName} की जगह ${r.vendorName}`,
+      mr: `${r.cancelledVendorName} ऐवजी ${r.vendorName}`,
+    })[base(lang)];
+  const replacementDetails = (r: VendorReplacement) => (
+    <>
+      <p className="font-medium">{replacementLabel(r)}{r.seeded ? ` · ${t.sampleData}` : ""}</p>
+      <p className="text-[13px] text-muted">{r.functions.map(fnTitle).join(" · ")}</p>
+    </>
+  );
+
   // Every sentence below is built from structured compiler output, in the viewer's language.
   const by = (r?: Requester) => (r ? ` (${t.reasonBy(r.memberName, familyOf(r.side), t.priorityLevels[r.priority])})` : "");
   const reasonText = (r: Reason) =>
@@ -178,7 +192,7 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
 
   const optionName = (id: string) => {
     const p = result.proposals.find((x) => x.id === id);
-    if (p) return t.optionN(p.rank);
+    if (p) return p.vendorReplacement ? replacementLabel(p.vendorReplacement) : t.optionN(p.rank);
     const c = result.conditional.find((x) => x.id === id);
     return c ? t.possibleOptionN(c.rank) : id;
   };
@@ -241,7 +255,9 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
           <ul className="mt-1 flex flex-col gap-0.5">
             {plan.committed.recap.moves.map((m) => (<li key={m.activityId} className="font-medium">{moveLabel(m, m.title)}</li>))}
           </ul>
-          <p className="mt-0.5 text-[13px]">{cost(plan.committed.recap.costDeltaInr)}</p>
+          {plan.committed.recap.vendorReplacement
+            ? replacementDetails(plan.committed.recap.vendorReplacement)
+            : <p className="mt-0.5 text-[13px]">{cost(plan.committed.recap.costDeltaInr)}</p>}
           <ul className="mt-1 flex flex-col gap-0.5 text-[13px] text-muted">
             {plan.committed.recap.reasons.map((r, i) => (<li key={i}>✓ {reasonText(r)}</li>))}
           </ul>
@@ -251,9 +267,9 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
         <p className="text-[13px] text-muted">{t.noCommittedYet}</p>
       )}
 
-      {result.conflicts.length === 0 ? (
+      {result.conflicts.length === 0 && !result.proposals.some((p) => p.vendorReplacement) ? (
         <p className="rounded-2xl border border-line bg-card px-4 py-3 text-[15px]">✓ {t.planAllClear}</p>
-      ) : (
+      ) : result.conflicts.length ? (
         <ul className="flex flex-col gap-2">
           {result.conflicts.map((c, i) => {
             const a = activities.find((x) => x.id === c.activityId);
@@ -266,7 +282,7 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
             );
           })}
         </ul>
-      )}
+      ) : null}
 
       {result.proposals.length > 0 ? (
         <div>
@@ -278,7 +294,16 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
                   <span className="grid size-6 shrink-0 place-items-center rounded-full bg-marigold-soft text-[13px] font-semibold">{p.rank}</span>
                   <div className="min-w-0 flex-1">
                     {p.moves.map((m) => (<p key={m.activityId} className="font-medium">{moveLabel(m)}</p>))}
-                    <p className="mt-0.5 text-[13px]">{cost(p.costDeltaInr)}</p>
+                    {p.vendorReplacement ? (
+                      <>
+                        {replacementDetails(p.vendorReplacement)}
+                        {plan.replacementQuotes ? <p className="mt-0.5 text-[13px]">
+                          {plan.replacementQuotes[p.vendorReplacement.vendorId] == null
+                            ? t.pricePending
+                            : formatINR(plan.replacementQuotes[p.vendorReplacement.vendorId]!)}
+                        </p> : null}
+                      </>
+                    ) : <p className="mt-0.5 text-[13px]">{cost(p.costDeltaInr)}</p>}
                     <ul className="mt-1.5 flex flex-col gap-0.5 text-[13px] text-muted">
                       {p.reasons.map((r, i) => (<li key={i}>✓ {reasonText(r)}</li>))}
                     </ul>

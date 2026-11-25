@@ -12,7 +12,7 @@ type L = {
   flagSource: string;
   taskOwners: { id: string; name: string }[];
   tasks: { id: string; title: string; kind: string; status: string; owner: string | null; due_date: string | null; canEdit: boolean; escalated: boolean; seeded: boolean; evidence: string | null; escalationPath: string; signedOffBy: string | null }[];
-  vendors: { id: string; name: string; category: string; origin: string; functions: string[]; status: string; seeded: boolean; quote_inr: number | null; planned_inr: number | null; committed_inr: number | null; invoice_inr: number | null; paid_inr: number | null; authorizedBy: string | null; accepted_at: string | null; paid_at: string | null; viewUrl: string | null }[];
+  vendors: { id: string; name: string; category: string; origin: string; functions: string[]; status: string; seeded: boolean; replacesVendorId: string | null; replacementContact: string | null; quote_inr: number | null; planned_inr: number | null; committed_inr: number | null; invoice_inr: number | null; paid_inr: number | null; authorizedBy: string | null; accepted_at: string | null; paid_at: string | null; viewUrl: string | null }[];
   spend: { planned: number; committed: number; actual: number; discrepancies: { vendorId: string; name: string; committed: number; invoice: number; diff: number; owner: string | null }[] } | null;
   openDeliverables: number;
   functions: { id: string; title: string; kind: string }[];
@@ -82,6 +82,7 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
   const [vCat, setVCat] = useState("caterer");
   const [vOrigin, setVOrigin] = useState<"family" | "sourced">("sourced");
   const [vQuote, setVQuote] = useState("");
+  const [vRunSheet, setVRunSheet] = useState("");
   const [vFns, setVFns] = useState<string[]>([]);
   const [gName, setGName] = useState("");
   const [gParty, setGParty] = useState("2");
@@ -187,28 +188,46 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
                   <p className="mt-1 text-[12px]">
                     {v.status === "cancelled" ? "❌ cancelled" : [v.authorizedBy ? `✓ authorized by ${v.authorizedBy}` : "○ not authorized", v.accepted_at ? "✓ vendor accepted" : "○ vendor hasn’t accepted", v.paid_at ? "✓ paid" : "○ unpaid"].join(" · ")}
                   </p>
+                  {v.replacementContact ? <p className="mt-1 break-words text-[12px]">Replacement contact · {v.replacementContact}</p> : null}
+                  {v.status === "cancelled" && l.open.day_of && l.me.decider
+                    && !l.vendors.some((candidate) => candidate.replacesVendorId === v.id && candidate.status !== "cancelled") ? (
+                    <ReplacementForm vendorId={v.id} canQuote={l.me.isCouple} busy={busy} save={act} />
+                  ) : null}
                   {v.status !== "cancelled" ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {l.me.decider && v.status === "shortlisted" ? <button disabled={busy} onClick={() => act({ type: "authorize_vendor", vendorId: v.id })} className={`${btn} bg-mehendi text-white`}>Authorize booking</button> : null}
-                      {l.me.decider && v.status === "authorized" ? <button disabled={busy} onClick={() => act({ type: "vendor_accepted", vendorId: v.id })} className={`${btn} border border-line`}>Vendor accepted</button> : null}
+                      {l.me.decider && l.open.booking && v.status === "shortlisted" && !v.replacesVendorId ? <button disabled={busy} onClick={() => act({ type: "authorize_vendor", vendorId: v.id })} className={`${btn} bg-mehendi text-white`}>Authorize booking</button> : null}
+                      {l.me.decider && l.open.booking && v.status === "authorized" ? <button disabled={busy} onClick={() => act({ type: "vendor_accepted", vendorId: v.id })} className={`${btn} border border-line`}>Vendor accepted</button> : null}
                       {l.me.isCouple && v.status !== "shortlisted" ? <button disabled={busy} onClick={() => { const inv = window.prompt("Invoice amount (₹)", String(v.invoice_inr ?? v.committed_inr ?? "")); const paid = window.prompt("Paid so far (₹)", String(v.paid_inr ?? 0)); if (inv !== null || paid !== null) act({ type: "vendor_money", vendorId: v.id, invoiceInr: inv || undefined, paidInr: paid || undefined }); }} className={`${btn} border border-line`}>Invoice / payment</button> : null}
                       {v.viewUrl ? <button onClick={() => copy(v.viewUrl!)} className={`${btn} border border-line`}>Copy run-sheet link</button> : null}
-                      {l.me.decider ? <button disabled={busy} onClick={() => {
+                      {l.me.decider && l.open.day_of && v.status !== "shortlisted" ? <button disabled={busy} onClick={() => {
                         if (!v.viewUrl || window.confirm("Replace the run-sheet link? The current link will stop working.")) void act({ type: "rotate_vendor_link", vendorId: v.id });
                       }} className={`${btn} border border-line`}>{v.viewUrl ? "Replace link" : "Renew link"}</button> : null}
-                      {l.me.decider ? <button disabled={busy} onClick={() => { const why = window.prompt(`Mark ${v.name} as cancelled? Reason:`); if (why !== null) act({ type: "cancel_vendor", vendorId: v.id, reason: why }); }} className={`${btn} border border-sindoor/50 text-sindoor`}>Cancelled</button> : null}
+                      {l.me.decider && l.open.day_of ? <details>
+                        <summary className={`${btn} flex cursor-pointer items-center border border-sindoor/50 text-sindoor`}>Record cancellation</summary>
+                        <form className="mt-2 grid gap-2" onSubmit={(event) => {
+                          event.preventDefault();
+                          const fields = new FormData(event.currentTarget);
+                          void act({ type: "cancel_vendor", vendorId: v.id, reason: fields.get("reason"), simulated: fields.has("simulated") });
+                        }}>
+                          <label className="grid gap-1 text-[13px]">Reason <input name="reason" maxLength={120} className={input} /></label>
+                          <label className="flex items-center gap-2 text-[13px]"><input name="simulated" type="checkbox" /> Label as simulated</label>
+                          <button className={`${btn} border border-line`} disabled={busy}>Record</button>
+                        </form>
+                      </details> : null}
+                      {v.status === "shortlisted" && v.replacesVendorId ? <p className="text-[13px] text-muted">Awaiting couple approval in the shared plan</p> : null}
                     </div>
                   ) : null}
                 </li>
               ))}
             </ul>
             {l.me.decider && l.open.sourcing ? (
-              <form className="mt-3 flex flex-col gap-2 rounded-2xl border border-dashed border-marigold/60 p-3" onSubmit={(e) => { e.preventDefault(); act({ type: "add_vendor", name: vName, category: vCat, origin: vOrigin, quoteInr: vQuote || undefined, functions: vFns }).then(() => { setVName(""); setVQuote(""); setVFns([]); }); }}>
+              <form className="mt-3 flex flex-col gap-2 rounded-2xl border border-dashed border-marigold/60 p-3" onSubmit={(e) => { e.preventDefault(); act({ type: "add_vendor", name: vName, category: vCat, origin: vOrigin, quoteInr: vQuote || undefined, functions: vFns, runSheet: vRunSheet }).then((saved) => { if (saved) { setVName(""); setVQuote(""); setVFns([]); setVRunSheet(""); } }); }}>
                 <input className={input} value={vName} onChange={(e) => setVName(e.target.value)} placeholder="Vendor name (e.g. our family caterer)" maxLength={80} />
                 <div className="flex gap-2">
                   <select className={`${input} flex-1`} value={vCat} onChange={(e) => setVCat(e.target.value)}>{CATS.map((c) => <option key={c} value={c}>{c.replace("_", " ")}</option>)}</select>
                   <select className={`${input} flex-1`} value={vOrigin} onChange={(e) => setVOrigin(e.target.value as "family" | "sourced")}><option value="sourced">Sourced</option><option value="family">Family’s own</option></select>
                 </div>
+                <label className="grid gap-1 text-[13px]">Vendor run sheet · brief, arrival and contact <textarea className={input} maxLength={2000} value={vRunSheet} onChange={(e) => setVRunSheet(e.target.value)} /></label>
                 <input className={input} inputMode="numeric" value={vQuote} onChange={(e) => setVQuote(e.target.value.replace(/\D/g, ""))} placeholder="Quote ₹ (optional)" />
                 <div className="flex flex-wrap gap-1.5">
                   {l.functions.map((f) => <button type="button" key={f.id} onClick={() => setVFns((x) => (x.includes(f.kind === "other" ? f.title : f.kind) ? x.filter((y) => y !== (f.kind === "other" ? f.title : f.kind)) : [...x, f.kind === "other" ? f.title : f.kind]))} className={`rounded-full border px-3 py-1 text-[13px] ${vFns.includes(f.kind === "other" ? f.title : f.kind) ? "border-sindoor bg-sindoor text-white" : "border-line"}`}>{f.title}</button>)}
@@ -285,6 +304,31 @@ function TaskUpdate({ task, busy, save }: {
         </select></label>
         <label className="grid gap-1 text-[13px]">Evidence <textarea className={input} maxLength={300} value={evidence} onChange={(e) => setEvidence(e.target.value)} /></label>
         <button className={`${btn} border border-line`} disabled={busy}>Save task</button>
+      </form>
+    </details>
+  );
+}
+
+function ReplacementForm({ vendorId, canQuote, busy, save }: {
+  vendorId: string;
+  canQuote: boolean;
+  busy: boolean;
+  save: (action: Record<string, unknown>) => Promise<boolean>;
+}) {
+  return (
+    <details className="mt-2">
+      <summary className="cursor-pointer text-[13px] font-medium">Record replacement contact</summary>
+      <form className="mt-2 grid gap-2" onSubmit={(event) => {
+        event.preventDefault();
+        const fields = new FormData(event.currentTarget);
+        void save({ type: "propose_replacement", vendorId, name: fields.get("name"),
+          contact: fields.get("contact"), runSheet: fields.get("runSheet"), quoteInr: fields.get("quote") || undefined });
+      }}>
+        <label className="grid gap-1 text-[13px]">Vendor name <input name="name" required maxLength={80} className={input} /></label>
+        <label className="grid gap-1 text-[13px]">Contact and confirmation details <textarea name="contact" required maxLength={300} className={input} /></label>
+        <label className="grid gap-1 text-[13px]">Vendor run sheet · brief, arrival and contact <textarea name="runSheet" maxLength={2000} className={input} /></label>
+        {canQuote ? <label className="grid gap-1 text-[13px]">Quote (₹) <input name="quote" type="number" min={0} className={input} /></label> : null}
+        <button className={`${btn} border border-line`} disabled={busy}>Send to shared plan</button>
       </form>
     </details>
   );

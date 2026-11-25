@@ -5,7 +5,8 @@ import { POST as recover } from "@/app/api/ops/recover/route";
 import { POST as scan } from "@/app/api/calls/incidents/route";
 import { POST as replay } from "@/app/api/calls/replay/route";
 import { dispatchStoredResult, processCallResult, storeCallResult } from "@/lib/server/calls";
-import { approveRevision, planView, seedDemoPlan } from "@/lib/server/plan";
+import { approveRevision, planView, respondToRevision, seedDemoPlan } from "@/lib/server/plan";
+import { lifecycleAction, vendorRunSheet } from "@/lib/server/lifecycle";
 import { db } from "@/lib/server/supabase";
 
 const incident = vi.hoisted(() => ({ paused: true, remoteAvailable: true }));
@@ -253,4 +254,90 @@ it("validates approved inline recovery input and requires a remote switch value"
   incident.remoteAvailable = false;
   expect((await post("{}")).status).toBe(503);
   expect((await post('{"dryRun":true}')).status).toBe(503);
+});
+
+it("compiles a contacted replacement for both households and records the couple's exact decision", async () => {
+  const endpoint = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
+  expect(["127.0.0.1", "localhost", "[::1]"]).toContain(endpoint.hostname);
+  vi.stubEnv("FLAGSMITH_SERVER_KEY", "");
+  const realFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    if (url.origin !== endpoint.origin) throw new Error("Unexpected external request");
+    if (url.pathname === "/realtime/v1/api/broadcast") return new Response(null, { status: 204 });
+    url.pathname = url.pathname.replace(/^\/rest\/v1(?=\/|$)/, "");
+    return realFetch(input instanceof Request ? new Request(url, input) : url, init);
+  });
+
+  const client = db();
+  const wedding = checked(await client.from("weddings")
+    .insert({ partner_a: "Meera", partner_b: "Aarav", stage: "guests" }).select("id").single());
+  const households = checked(await client.from("households").insert([
+    { wedding_id: wedding.id, side: "A", name: "Household A" },
+    { wedding_id: wedding.id, side: "B", name: "Household B" },
+  ]).select("id,side"));
+  const couple = 1201;
+  const parent = 1202;
+  checked(await client.from("members").insert([
+    { wedding_id: wedding.id, household_id: households.find(({ side }) => side === "A")?.id,
+      tg_user_id: couple, display_name: "Meera", is_couple: true, is_parent_delegate: false, role: "couple" },
+    { wedding_id: wedding.id, household_id: households.find(({ side }) => side === "B")?.id,
+      tg_user_id: parent, display_name: "Arjun", is_couple: false, is_parent_delegate: true, role: "parent" },
+  ]).select("id"));
+
+  const old = checked(await client.from("vendors")
+    .insert({ wedding_id: wedding.id, name: "Original caterer", category: "caterer",
+      status: "accepted", functions: ["sangeet", "ceremony"] }).select("id,view_token").single());
+  const cancel = { type: "cancel_vendor", vendorId: old.id, simulated: true };
+  await expect(lifecycleAction(parent, wedding.id, cancel)).rejects.toMatchObject({ status: 409, message: "stage_locked:day_of" });
+  await lifecycleAction(couple, wedding.id, { type: "advance_stage", expectedStage: "guests" });
+  const cancelled = await lifecycleAction(parent, wedding.id, cancel);
+  expect(cancelled.tasks).toEqual(expect.arrayContaining([
+    expect.objectContaining({ kind: "incident", owner: "Arjun", seeded: true }),
+    expect.objectContaining({ kind: "replacement", owner: "Arjun", seeded: true }),
+  ]));
+  await expect(vendorRunSheet(old.view_token)).rejects.toMatchObject({ status: 404 });
+
+  const submit = (name: string) => lifecycleAction(couple, wedding.id, { type: "propose_replacement", vendorId: old.id,
+    name, contact: "Private contact confirmation", runSheet: "Arrive at 6:00 pm", quoteInr: 20000 });
+  const first = await submit("First candidate");
+  const firstVendor = first.vendors.find(({ replacesVendorId }) => replacesVendorId === old.id);
+  expect(firstVendor).toMatchObject({ status: "shortlisted", viewUrl: null });
+  const oldPlan = await planView(couple, wedding.id);
+  if (!firstVendor || !oldPlan) throw new Error("Expected a pending replacement");
+  const oldDecision = { weddingId: wedding.id, revision: oldPlan.revision, proposalId: oldPlan.result.proposals[0].id };
+  await lifecycleAction(couple, wedding.id, { type: "cancel_vendor", vendorId: firstVendor.id });
+  await expect(approveRevision(couple, oldDecision)).resolves.toMatchObject({ status: "stale" });
+
+  const submitted = await submit("Replacement caterer");
+  const replacement = submitted.vendors.find((v) => v.name === "Replacement caterer");
+  if (!replacement) throw new Error("Expected pending vendor");
+  await expect(submit("Duplicate candidate")).rejects.toMatchObject({ status: 409, message: "replacement_already_proposed" });
+  await expect(lifecycleAction(parent, wedding.id, { type: "authorize_vendor", vendorId: replacement.id }))
+    .rejects.toMatchObject({ status: 409, message: "approve_replacement_in_plan" });
+  const [forCouple, forParent] = await Promise.all([planView(couple, wedding.id), planView(parent, wedding.id)]);
+  if (!forCouple || !forParent) throw new Error("Expected a shared replacement plan");
+  expect(forParent.revision).toBe(forCouple.revision);
+  expect(forParent.result).toEqual(forCouple.result);
+  expect(forParent).not.toHaveProperty("replacementQuotes");
+  expect(JSON.stringify(forParent)).not.toContain("Private contact confirmation");
+  expect(forCouple.replacementQuotes).toEqual({ [replacement.id]: 20000 });
+  const proposal = forCouple.result.proposals[0];
+  expect(proposal.vendorReplacement).toMatchObject({ vendorName: replacement.name,
+    cancelledVendorId: old.id, functions: ["sangeet", "ceremony"], seeded: true });
+  const decision = { weddingId: wedding.id, revision: forCouple.revision, proposalId: proposal.id };
+  await expect(respondToRevision(parent, { ...decision, stance: "agree", note: "" })).resolves.toMatchObject({ status: "ok" });
+  expect((await planView(couple, wedding.id))?.responses[0]).toMatchObject({ memberName: "Arjun", stance: "agree" });
+  await expect(approveRevision(parent, decision)).rejects.toMatchObject({ status: 403 });
+  await expect(approveRevision(couple, decision)).resolves.toMatchObject({ status: "ok" });
+  expect((await planView(parent, wedding.id))?.committed).toMatchObject({ revision: decision.revision, proposalId: decision.proposalId, approvedBy: "Meera",
+    recap: { vendorReplacement: proposal.vendorReplacement } });
+
+  const approved = checked(await client.from("vendors")
+    .select("status,authorized_by,accepted_at,paid_at,committed_inr,view_token").eq("id", replacement.id).single());
+  expect(approved).toMatchObject({ status: "authorized", accepted_at: null, paid_at: null, committed_inr: 20000 });
+  expect(approved.authorized_by).toBeTruthy();
+  const sheet = await vendorRunSheet(approved.view_token);
+  expect(sheet.vendor.runSheet).toBe("Arrive at 6:00 pm");
+  expect(JSON.stringify(sheet)).not.toContain("Private contact confirmation");
 });

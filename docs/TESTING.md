@@ -90,7 +90,7 @@ Flip each flag below in Flagsmith, then reopen or refresh the plan:
    - A red discrepancy warning for ₹15k.
    - An "Invoice from…" task owned by Aai.
 7. Phone C (cousin) opens the Planner. **Expect:** no amounts anywhere.
-8. Copy the vendor's **run sheet link** and open it in a private browser. **Expect:** only that vendor's functions and times, with no money and no family notes.
+8. At *day of*, copy the vendor's **run sheet link** and open it in a private browser. **Expect:** only that vendor's functions and times, with no money and no family notes.
 
 ## 9. Guests, RSVP, registry (browser, no Telegram)
 
@@ -104,13 +104,11 @@ Flip each flag below in Flagsmith, then reopen or refresh the plan:
 
 ## 10. Cancellation and closeout
 
-1. Planner → Vendors → **Cancel** the caterer with the reason "double-booked".
-2. **Expect:**
-   - An ⚠️ incident and a "Find a replacement caterer" task, both with an owner.
-   - The agent card's task list shows them at the top.
-   - The vendor drops out of the spend.
-3. Add a deliverable task "Wedding album delivered". Advance to *closeout* and tap **Sign off**.
-4. **Expect:** the sign-off is recorded, and the album task stays open until it's marked done.
+1. Advance to *day of*. In Planner → Vendors, select **Record cancellation**, enter “double-booked,” and check **Label as simulated**.
+2. Confirm that the incident and replacement contact task are labelled as samples and have an owner. The old run sheet link stops working, and the vendor drops out of the spend.
+3. Select **Record replacement contact** on the cancelled vendor. Enter the backup caterer's name and the rehearsal contact details. Select **Send to shared plan**.
+4. Open the shared plan on both phones. The replacement proposal lists the affected functions. Respond on Phone B, then approve the revision as the couple. Both phones show the decision. Vendor acceptance and payment remain separate.
+5. Add a deliverable task “Wedding album delivered.” Advance to *closeout* and tap **Sign off**. The sign-off is recorded, and the album task stays open until it is marked done.
 
 ## 11. Clean up
 

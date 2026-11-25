@@ -1,32 +1,39 @@
 import "server-only";
 import { db } from "./supabase";
-import { HttpError, logEvent, memberships } from "./weddings";
+import { HttpError, logEvent, memberships, pingWedding } from "./weddings";
 import { familyRequirements } from "./family-voice";
 import { applyFamilyRequirements } from "@/lib/family-plan";
 import { makeupEnquiries } from "./makeup-enquiries";
 import { compile, withConfirmedTimes } from "@/lib/compiler/compile";
 import { demoSangeet } from "@/lib/compiler/fixtures/demo-sangeet";
-import { weddingFlags, type ResolvedFlags } from "./flags";
+import { flagsForMember, weddingFlags, type ResolvedFlags } from "./flags";
 import { activityFromRow, activityToRow, typedFactRules, type ActivityRow, type FactInput } from "@/lib/plan-input";
+import { areaOpen } from "@/lib/lifecycle";
 import { applyProposal, buildRecap, policyForRevision, revisionFingerprint, ttlCache, type ApproveInput, type Recap, type RespondInput, type Stance } from "@/lib/revisions";
-import type { Activity, CompileResult, CompilerPolicy, Fact, FactKind, Snapshot } from "@/lib/compiler/types";
+import type { Activity, CompileResult, CompilerPolicy, Fact, FactKind, Snapshot, VendorReplacement } from "@/lib/compiler/types";
 
 /** The only I/O in the planning path: load inputs. compile() itself stays pure. */
 export async function loadSnapshot(
-  weddingId: string, enquiries = makeupEnquiries(weddingId),
+  weddingId: string, enquiries = makeupEnquiries(weddingId), replacements = pendingVendorReplacements(weddingId),
 ): Promise<Snapshot | null> {
   const s = db();
-  const [a, f, requirements, makeup] = await Promise.all([
+  const [a, f, requirements, makeup, vendors] = await Promise.all([
     s.from("activities").select("*").eq("wedding_id", weddingId).order("start_min"),
     s.from("facts").select("*").eq("wedding_id", weddingId).order("created_at"),
     familyRequirements(weddingId),
     enquiries,
+    replacements,
   ]);
   if (a.error) throw a.error;
   if (f.error) throw f.error;
-  if (!a.data?.length) return null;
+  if (!a.data?.length && !vendors.length) {
+    const history = await s.from("vendors").select("id").eq("wedding_id", weddingId)
+      .not("replaces_vendor_id", "is", null).limit(1);
+    if (history.error) throw history.error;
+    if (!history.data?.length) return null;
+  }
 
-  const activities: Activity[] = (a.data as ActivityRow[]).map(activityFromRow);
+  const activities: Activity[] = ((a.data ?? []) as ActivityRow[]).map(activityFromRow);
   const facts: Fact[] = (f.data ?? []).map((r) => ({
     id: r.id,
     kind: r.kind,
@@ -39,7 +46,18 @@ export async function loadSnapshot(
   const revision = requirements.reduce((value, item) => value + item.version, facts.length);
   const withdrawnMakeupOptions = makeup.filter((enquiry) => enquiry.status === "withdrawn")
     .map(({ functionKind, proposalId, readyBy }) => ({ functionKind, proposalId, readyBy }));
-  return applyFamilyRequirements({ weddingId, revision, activities, facts, withdrawnMakeupOptions }, requirements);
+  return applyFamilyRequirements({ weddingId, revision, activities, facts, withdrawnMakeupOptions, vendorReplacements: vendors.map(({ quote, ...vendor }) => vendor) }, requirements);
+}
+
+async function pendingVendorReplacements(weddingId: string): Promise<(VendorReplacement & { quote: number | null })[]> {
+  const { data, error } = await db().from("pending_vendor_replacements")
+    .select("id, name, functions, seeded, quote_inr, cancelled_vendor_id, cancelled_vendor_name")
+    .eq("wedding_id", weddingId).order("id");
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    vendorId: row.id, vendorName: row.name, cancelledVendorId: row.cancelled_vendor_id,
+    cancelledVendorName: row.cancelled_vendor_name, functions: row.functions, seeded: row.seeded, quote: row.quote_inr,
+  }));
 }
 
 async function requireMember(tgUserId: number, weddingId?: string) {
@@ -85,10 +103,12 @@ async function tryCurrentRevision(weddingId: string) {
   const last = latest.data?.[0];
 
   const makeup = makeupEnquiries(weddingId);
-  const [snap, enquiries, w] = await Promise.all([
-    loadSnapshot(weddingId, makeup),
+  const pending = pendingVendorReplacements(weddingId);
+  const [snap, enquiries, w, replacements] = await Promise.all([
+    loadSnapshot(weddingId, makeup, pending),
     makeup,
     s.from("weddings").select("stage").eq("id", weddingId).single(),
+    pending,
   ]);
   if (w.error) throw w.error;
   if (!snap) return null;
@@ -102,7 +122,7 @@ async function tryCurrentRevision(weddingId: string) {
 
   // Fast path for the common poll: nothing changed, so no write and no row lock.
   if (last && last.fingerprint === fingerprint) {
-    return { snap, enquiries, flags, result: last.result as CompileResult, revision: last.revision as number };
+    return { snap, enquiries, flags, replacements, result: last.result as CompileResult, revision: last.revision as number };
   }
 
   const result = compile(snap, policy);
@@ -119,7 +139,7 @@ async function tryCurrentRevision(weddingId: string) {
   // because responses and approvals are validated against the stored result.
   const { data: stored, error: sErr } = await s.from("plan_revisions").select("result").eq("wedding_id", weddingId).eq("revision", revision as number).single();
   if (sErr) throw sErr;
-  return { snap, enquiries, flags, result: stored.result as CompileResult, revision: revision as number };
+  return { snap, enquiries, flags, replacements, result: stored.result as CompileResult, revision: revision as number };
 }
 
 export interface HouseholdResponse {
@@ -146,6 +166,7 @@ export interface PlanView {
   committed: { revision: number; proposalId: string; approvedBy: string; approvedAt: string; recap: Recap } | null;
   canRespond: boolean;
   canApprove: boolean;
+  replacementQuotes?: Record<string, number | null>;
 }
 
 /** Recompiles from the current facts on every read, so a new fact is reflected immediately. */
@@ -201,6 +222,7 @@ export async function planView(tgUserId: number, weddingId?: string): Promise<Pl
       : null,
     canRespond: !!me.household_id,
     canApprove: !!me.is_couple,
+    ...(me.is_couple && cur.replacements.length ? { replacementQuotes: Object.fromEntries(cur.replacements.map((v) => [v.vendorId, v.quote])) } : {}),
   };
 }
 
@@ -243,6 +265,16 @@ export async function approveRevision(tgUserId: number, input: ApproveInput): Pr
 
   const proposal = cur.result.proposals.find((p) => p.id === input.proposalId);
   if (!proposal) throw new HttpError(400, "bad_proposal");
+  if (proposal.vendorReplacement) {
+    const [{ data, error }, flags] = await Promise.all([
+      db().from("weddings").select("stage").eq("id", me.wedding_id).single(),
+      flagsForMember(me),
+    ]);
+    if (error) throw error;
+    if (!areaOpen("day_of", data.stage, { source: flags.source, on: { stage_day_of: flags.features.stage_day_of?.enabled ?? false } })) {
+      throw new HttpError(409, "stage_locked:day_of");
+    }
+  }
   const timed = withConfirmedTimes(cur.snap).activities;
   const functionKind = timed.find((activity) => activity.id === proposal.moves[0]?.activityId)?.functionKind;
   const approvedActivities = applyProposal(timed, proposal).filter((activity) => activity.functionKind === functionKind);
@@ -264,6 +296,7 @@ export async function approveRevision(tgUserId: number, input: ApproveInput): Pr
   if (status === "bad_proposal") throw new HttpError(400, "bad_proposal");
   if (status === "already_approved") throw new HttpError(409, "already_approved");
   await logEvent(me.wedding_id, me.id, "revision_approved", { revision: input.revision, proposal: input.proposalId });
+  await pingWedding(me.wedding_id);
   return { status: "ok", weddingId: me.wedding_id };
 }
 

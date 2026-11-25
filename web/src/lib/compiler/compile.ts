@@ -529,6 +529,17 @@ export const compile: Compile = (input: Snapshot, policy: CompilerPolicy): Compi
     }
   }
 
+  for (const replacement of snapshot.vendorReplacements ?? []) {
+    proposals.push({
+      id: `replacement-${replacement.vendorId}`,
+      vendorReplacement: replacement,
+      moves: [],
+      costDeltaInr: null,
+      reasons: [],
+      satisfies: [],
+      rank: proposals.length + 1,
+    });
+  }
   return { conflicts, proposals, conditional: conditionalOut, blocking: dedupe(blocking), policyVersion: policy.version };
 };
 
