@@ -278,9 +278,10 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
                 {view.priorities.map((p) => (
                   <li key={p.id} className="rounded-3xl border border-line bg-card px-5 py-4">
                     <p className="text-[16px] leading-snug">{p.kind === "note" ? p.note : t.priorityPresets[p.kind] ?? p.kind}</p>
+                    {p.voiceTranscript ? <p className="mt-1 text-xs text-muted">{t.whatsappVoiceTranscript}</p> : null}
                     <div className="mt-2 flex items-center justify-between gap-3 text-[12.5px]">
                       <span className="text-mehendi">
-                        {t.sharedBy(p.author, p.family)}
+                        {p.author ? t.sharedBy(p.author, p.family) : p.family}
                         {p.source === "telegram" ? " · Telegram" : p.source === "whatsapp" ? " · WhatsApp" : p.source === "voice" ? " · 🎙️" : ""}
                       </span>
                       <span className={p.visibility === "household" ? "text-mehendi" : "text-muted"}>
