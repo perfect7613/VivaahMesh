@@ -78,7 +78,7 @@ Existing inline deployments can keep their API-key incident reporting, agent-fai
 
 With the migrations applied to your rehearsal project, set `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `TELEGRAM_BOT_USERNAME` in the server environment. From `web/` run `npm run seed:wedding -- <organizer-telegram-id>` using Node 22. The organizer is the first partner. Share each of the two household links with its family and the single-use couple invitation with the other partner. These private links grant access and should stay out of build logs.
 
-The seed creates a fictional ₹15 lakh, 350-guest wedding with Sangeet, Ceremony and Reception. Open the Sangeet plan to see the five-minute video overrun and unresolved venue cutoff. Rerunning for the same organizer returns the same wedding and preserves subsequent edits.
+The seed creates a fictional ₹15 lakh, 350-guest wedding with Sangeet, Ceremony and Reception. Open the Sangeet plan to see the five-minute video overrun and unresolved venue cutoff. Rerunning for the same organizer returns the same wedding and preserves subsequent edits. Seeded weddings use a simulated venue even when Sarvam and a real phone number are configured. The outbound Flagsmith switch still controls whether the rehearsal can start. The simulated answer updates the plan with a rehearsal label and stays in the app. To deliberately exercise the live phone or browser path with a consenting participant, set `DEMO_SEEDED_LIVE_CALLS=1` on the app server and configure the relevant channel. Clear the setting when the session ends.
 
 ## Live test
 

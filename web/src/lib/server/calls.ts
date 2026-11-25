@@ -61,6 +61,31 @@ function sarvamConfig() {
   return c.key && c.org && c.workspace && c.app && c.connection && c.agentPhone ? c : null;
 }
 
+export async function callWedding(weddingId: string) {
+  const { data, error } = await db().from("weddings").select("partner_a, partner_b, is_seeded_demo")
+    .eq("id", weddingId).single();
+  if (error) throw error;
+  if (!data) throw new HttpError(404, "wedding_not_found");
+  return data;
+}
+
+export function canUseLiveCalls(wedding: { is_seeded_demo: boolean }) {
+  return !wedding.is_seeded_demo || process.env.DEMO_SEEDED_LIVE_CALLS === "1";
+}
+
+export function rehearsalCall(wedding: { is_seeded_demo: boolean }) {
+  return !canUseLiveCalls(wedding) || (!sarvamConfig() && (wedding.is_seeded_demo || rehearsal()));
+}
+
+function rehearsalVenue(wedding: { is_seeded_demo: boolean }): VendorContact {
+  return {
+    role: "venue_owner",
+    name: wedding.is_seeded_demo ? "Marigold Hall (rehearsal)" : "Shubh Mangal Lawns (rehearsal)",
+    phone: "rehearsal",
+    language: "Hindi",
+  };
+}
+
 const secret = () => process.env.CALLS_WEBHOOK_SECRET || process.env.TELEGRAM_WEBHOOK_SECRET || "";
 export const callToken = (callId: string) => createHmac("sha256", secret()).update(`call:${callId}`).digest("hex");
 export function verifyCallToken(callId: string, token: string) {
@@ -95,10 +120,12 @@ export async function requireAuthorizer(tgUserId: number, weddingId?: string) {
 /** What the family sees before authorizing: recipient, purpose, and whether dialing is allowed. */
 export async function callPreview(tgUserId: number, weddingId?: string) {
   const me = await requireAuthorizer(tgUserId, weddingId);
-  const venue = demoVenue();
+  const wedding = await callWedding(me.wedding_id);
+  const isRehearsal = rehearsalCall(wedding);
+  const venue = isRehearsal ? rehearsalVenue(wedding) : demoVenue();
   const flags = await flagsForMember(me);
   const variant = flags.features.caller_prompt.value || "baseline";
-  const browserEnabled = flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser";
+  const browserEnabled = canUseLiveCalls(wedding) && flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser";
   const last = await db()
     .from("calls")
     .select("id, status, created_at, error, processed_at, recipient_name, follow_up_count, fact:facts(status,value,wording)")
@@ -112,29 +139,28 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
   return {
     browserRecipient: browser?.recipientName,
     recipient: venue
-      ? { name: venue.name, phone: maskPhone(venue.phone), language: venue.language, role: venue.role }
-      : rehearsal()
-        ? { name: "Shubh Mangal Lawns (rehearsal)", phone: "no phone call", language: "Hindi", role: "venue_owner" }
-        : null,
+      ? { name: venue.name, phone: isRehearsal ? "no phone call" : maskPhone(venue.phone), language: venue.language, role: venue.role }
+      : null,
     purpose: browser?.purpose ?? (QUESTION[variant] ?? QUESTION.baseline)("Sangeet"),
     callerPrompt: browser?.callerPrompt ?? variant,
     dialingEnabled: await killSwitch("outbound_dialing_enabled"),
     browserEnabled,
-    configured: (!!sarvamConfig() && !!venue) || rehearsal(),
-    rehearsal: !sarvamConfig() && rehearsal(),
+    configured: isRehearsal || (!!sarvamConfig() && !!venue),
+    rehearsal: isRehearsal,
     lastCall,
   };
 }
 
 export async function authorizeCall(tgUserId: number, weddingId?: string, rehearsalOnly = false) {
   const me = await requireAuthorizer(tgUserId, weddingId);
+  const wedding = await callWedding(me.wedding_id);
   const cfg = sarvamConfig();
-  const isRehearsal = !cfg && rehearsal();
-  const venue = isRehearsal ? { role: "venue_owner" as const, name: "Shubh Mangal Lawns (rehearsal)", phone: "rehearsal", language: "Hindi" } : demoVenue();
+  const isRehearsal = rehearsalCall(wedding);
+  const venue = isRehearsal ? rehearsalVenue(wedding) : demoVenue();
   if (!venue || (!cfg && !isRehearsal)) throw new HttpError(503, "calling_not_configured");
 
   const flags = await flagsForMember(me);
-  if (flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser") {
+  if (canUseLiveCalls(wedding) && flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser") {
     throw new HttpError(409, "browser_mode_active");
   }
   const variant = flags.features.caller_prompt.value || "baseline";
@@ -150,7 +176,6 @@ export async function authorizeCall(tgUserId: number, weddingId?: string, rehear
   }
   const s = db();
 
-  const { data: wedding } = await s.from("weddings").select("partner_a, partner_b").eq("id", me.wedding_id).single();
   const { data: call, error } = await s
     .from("calls")
     .insert({
@@ -164,7 +189,8 @@ export async function authorizeCall(tgUserId: number, weddingId?: string, rehear
       language: venue.language,
       authorized_by: me.id,
       caller_prompt: variant,
-      flags: { caller_prompt: variant, outbound_dialing_enabled: dialing, source: flags.source, policy: flags.policy.version, channel: isRehearsal ? "rehearsal" : "phone" },
+      flags: { caller_prompt: variant, outbound_dialing_enabled: dialing, source: flags.source, policy: flags.policy.version, channel: isRehearsal ? "rehearsal" : "phone",
+        ...(isRehearsal && wedding.is_seeded_demo && { seeded_rehearsal: true }) },
       status: dialing ? "dialing" : "blocked",
       error: dialing ? null : "outbound_dialing_disabled",
     })
@@ -372,6 +398,8 @@ async function applyCallResult(callId: string): Promise<"applied" | "already" | 
   if (outcome === "already" || outcome === "superseded") return outcome;
   if (outcome !== "applied") throw new Error("Unexpected call evidence outcome");
   await pingWedding(call.wedding_id);
+  // The fixture result is already labeled in the plan. Keep it out of vendor answer messages.
+  if (call.flags?.seeded_rehearsal === true) return "applied";
   const latest = facts.at(-1);
   let told = false;
   try {
