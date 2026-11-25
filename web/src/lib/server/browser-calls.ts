@@ -5,8 +5,7 @@ import { db } from "./supabase";
 import { HttpError } from "./weddings";
 import { flagsForMember, recordVendorMetrics } from "./flags";
 import { authorizedPrompt } from "./call-preview-token";
-import { PROMPT_VERSION } from "../experiment/metrics";
-import { browserCallDetails, callRecipientScope, requireAuthorizer } from "./calls";
+import { browserCallDetails, callRecipientScope, callWedding, canUseLiveCalls, requireAuthorizer } from "./calls";
 import { findSarvamBrowserInteraction, getSarvamBrowserConfig, getSarvamBrowserSession } from "./sarvam-browser";
 import { browserEvidence } from "./browser-evidence";
 import { appUrl } from "./telegram-bot";
@@ -34,6 +33,8 @@ export async function callResponse(action: () => Promise<unknown>) {
 export async function browserInvite(tgId: number, input: Record<string, unknown>) {
   if (input.authorize !== true || typeof input.weddingId !== "string") throw new HttpError(400, "authorization_required");
   const me = await requireAuthorizer(tgId, input.weddingId);
+  const wedding = await callWedding(me.wedding_id);
+  if (!canUseLiveCalls(wedding)) throw new HttpError(409, "browser_mode_disabled");
   const flags = await flagsForMember(me);
   if (!flags.features.voice_channel.enabled || flags.features.voice_channel.value !== "browser") {
     throw new HttpError(409, "browser_mode_disabled");
@@ -41,7 +42,7 @@ export async function browserInvite(tgId: number, input: Record<string, unknown>
   getSarvamBrowserConfig();
   const token = randomBytes(32).toString("base64url");
   const url = appUrl(`/call-consent/${token}`);
-  const { id, prompt } = await authorizedPrompt(input.previewToken, me, callRecipientScope(true));
+  const { id, prompt } = await authorizedPrompt(input.previewToken, me, callRecipientScope(true, wedding));
   const { callerPrompt, recipientName, purpose } = browserCallDetails(prompt.variant);
   if (input.recipientName !== recipientName || input.purpose !== purpose || input.callerPrompt !== callerPrompt) {
     throw new HttpError(409, "browser_preview_changed");
@@ -51,7 +52,7 @@ export async function browserInvite(tgId: number, input: Record<string, unknown>
     id, wedding_id: me.wedding_id, function_kind: "sangeet", fact_kind: "music_cutoff",
     recipient_role: "venue_owner", recipient_name: recipientName,
     recipient_phone: "", purpose, authorized_by: me.id, caller_prompt: callerPrompt,
-    status: "authorized", flags: { source: flags.source, channel: "browser", caller_prompt: callerPrompt, caller_assignment: prompt, prompt_version: PROMPT_VERSION },
+    status: "authorized", flags: { source: flags.source, channel: "browser", caller_prompt: callerPrompt, caller_assignment: prompt, prompt_version: prompt.version },
     browser_reference: randomBytes(32).toString("base64url"),
     browser_consent_hash: hash(token), browser_consent_expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
   });
@@ -63,12 +64,13 @@ export async function browserInvite(tgId: number, input: Record<string, unknown>
 async function tokenCall(token: string) {
   if (!TOKEN.test(token)) throw new HttpError(404, "call_not_found");
   const { data, error } = await db().from("calls")
-    .select("id,flags,status,result_received_at,processed_at,recipient_name,language,purpose,function_kind,caller_prompt,browser_consent_expires_at,browser_consented_at,browser_started_at,browser_reference,provider_attempt_id,fact:facts(status)")
+    .select("id,wedding_id,flags,status,result_received_at,processed_at,recipient_name,language,purpose,function_kind,caller_prompt,browser_consent_expires_at,browser_consented_at,browser_started_at,browser_reference,provider_attempt_id,fact:facts(status)")
     .eq("browser_consent_hash", hash(token)).maybeSingle();
   if (error) throw error;
   if (!data) throw new HttpError(404, "call_not_found");
   const expiry = Date.parse(data.browser_consent_expires_at);
   if (!Number.isFinite(expiry) || expiry <= Date.now()) throw new HttpError(410, "consent_expired");
+  if (!canUseLiveCalls(await callWedding(data.wedding_id))) throw new HttpError(409, "browser_mode_disabled");
   return data;
 }
 

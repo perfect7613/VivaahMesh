@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "seed:wedding": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/seed-wedding.ts",
     "experiment:publish": "tsx scripts/publish-experiment.ts",
     "experiment": "WRITE_EXPERIMENT_REPORT=1 vitest run src/lib/experiment"
   },
