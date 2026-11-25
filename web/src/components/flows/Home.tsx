@@ -4,6 +4,7 @@ import { dict, pickLang, type Lang } from "@/lib/i18n";
 import { api, haptic, useBackButton, useMainButton } from "@/lib/client/telegram";
 import { Chip, FallbackButton, Field, Petals, PrivacyNote, inputClass, formatINR } from "@/components/ui";
 import { InvitationCard } from "./InvitationCard";
+import { PlanCard } from "./PlanCard";
 import { inviteLink, shareInvite } from "./shared";
 import type { View } from "./types";
 
@@ -114,6 +115,10 @@ export function Home({ view, setView, botUsername, celebrate }: { view: View; se
               {copied === "partner" ? "✓ Link copied" : `💌 ${t.invitePartner}`}
             </button>
           ) : null}
+        </Section>
+
+        <Section title={t.planCheck}>
+          <PlanCard view={view} lang={lang} />
         </Section>
 
         <Section title={t.thePlan}>

@@ -35,7 +35,8 @@ export interface Fact {
   status: "confirmed" | "conditional" | "unresolved";
   /** Vendor's own wording plus where it came from (call id, quote doc, typed reply). */
   source: { channel: "samvaad_call" | "browser_agent" | "quote" | "typed" | "seed"; ref: string; wording: string };
-  supersedes?: string;
+  /** Earlier fact id(s) this one replaces, e.g. a mid-call correction or a typed fix of a contradiction. */
+  supersedes?: string | string[];
 }
 
 /** Remote config from Flagsmith `compiler_policy`. */
@@ -66,7 +67,8 @@ export interface Snapshot {
 
 export interface Conflict {
   activityId: string;
-  constraint: FactKind | "overlap" | "buffer";
+  /** `coverage_start`: a performance starts before video coverage begins. */
+  constraint: FactKind | "overlap" | "buffer" | "coverage_start";
   /** Positive minutes over the limit, e.g. a dance ending 10:05 against a 10:00 cutoff → 5. */
   overByMin: number;
   explanation: string;
@@ -83,12 +85,45 @@ export interface Proposal {
   moves: Move[];
   /** Null = "Price pending": never invent a cost. */
   costDeltaInr: number | null;
-  satisfies: string[]; // human-readable family priorities preserved
+  satisfies: string[]; // human-readable (English) family priorities preserved, for logs
+  /** The same priorities as structured data, so each phone can phrase them in its own language. */
+  reasons: Reason[];
   rank: number;
 }
 
+export interface Requester {
+  memberName: string;
+  side: HouseholdSide;
+  priority: "must" | "prefer" | "nice";
+}
+
+export type Reason =
+  | { code: "dinner_kept"; at: Minute; noDanceDuring: boolean; by?: Requester }
+  | { code: "duration_kept"; activityId: string; minutes: number; by?: Requester }
+  | { code: "video_covered" };
+
+/** Who can unblock something, as data: phones translate the role. */
+export interface Resolver {
+  role: "venue_owner" | "videographer" | "makeup_artist" | "household" | "planner";
+  name?: string;
+  side?: HouseholdSide;
+}
+
+export type BlockingItem = {
+  /** English description, for logs. */
+  constraint: string;
+  /** English resolver, for logs. */
+  whoCanResolve: string;
+  resolver: Resolver;
+} & (
+  | { code: "cutoff_unconfirmed" }
+  | { code: "contradiction"; factKind: FactKind; values: number[] }
+  | { code: "no_slot"; activityId: string; violated: Conflict["constraint"] }
+  | { code: "fixed_conflict"; activityId: string; violated: Conflict["constraint"]; overByMin: number }
+);
+
 export interface ConditionalProposal extends Proposal {
-  missing: { question: string; askWhom: string; factKind: FactKind };
+  missing: { question: string; askWhom: string; factKind: FactKind; /** For time facts: the time the answer must meet, so UIs can localize the question. */ byMinute?: Minute };
 }
 
 export interface CompileResult {
@@ -96,7 +131,7 @@ export interface CompileResult {
   proposals: Proposal[];
   conditional: ConditionalProposal[];
   /** When nothing fits: what blocks it and whose input could unblock it. */
-  blocking: { constraint: string; whoCanResolve: string }[];
+  blocking: BlockingItem[];
   policyVersion: string;
 }
 
