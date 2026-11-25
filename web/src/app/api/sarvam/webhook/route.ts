@@ -6,6 +6,8 @@ import { processCallResult, storeCallResult, verifyCallToken } from "@/lib/serve
  * forged or replayed request for another call is rejected. The result is stored first and
  * processed after the response, so Sarvam never waits on (or retries because of) our compile.
  */
+export const maxDuration = 60;
+
 export async function POST(req: Request) {
   const url = new URL(req.url);
   const callId = url.searchParams.get("call") ?? "";

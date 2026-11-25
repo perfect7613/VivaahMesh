@@ -4,14 +4,14 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { PhoneCall } from "lucide-react";
 import { inputClass } from "@/components/ui";
 type VenueCallStatus = "awaiting_consent" | "ready" | "starting" | "started" | "browser_ready" | "call_failed" | "result_saved" | "resolved" | "unresolved" | "blocked";
-import { LANGS, type Lang } from "@/lib/i18n";
+import { isBase, LANGS, type BaseLang } from "@/lib/i18n";
 import { BrowserCall, type BrowserCallConfig } from "./BrowserCall";
 
 interface ConsentView {
   recipientName: string;
   purpose: string;
   functionKind?: string;
-  language?: Lang | null;
+  language?: BaseLang | null;
   promptVariant?: "baseline" | "clarify_scope" | null;
   status: VenueCallStatus;
   channel: "phone" | "browser" | null;
@@ -76,7 +76,7 @@ const focusClass = "focus-visible:ring-2 focus-visible:ring-marigold focus-visib
 const primaryClass = `pressable min-h-12 w-full rounded-xl border border-marigold bg-marigold-soft px-4 py-2.5 font-semibold disabled:opacity-50 ${focusClass}`;
 
 export function ConsentPage({ token }: { token: string }) {
-  const [lang, setLang] = useState<Lang>("en");
+  const [lang, setLang] = useState<BaseLang>("en");
   const [view, setView] = useState<ConsentView | null>(null);
   const [readError, setReadError] = useState<"missing" | "loadFailed" | null>(null);
   const [submitError, setSubmitError] = useState(false);
@@ -171,8 +171,8 @@ export function ConsentPage({ token }: { token: string }) {
       </header>
       <label className="block space-y-1.5 font-medium">
         <span>{t.language}</span>
-        <select disabled={saving} value={lang} className={`${inputClass} min-h-12 py-2`} onChange={(event) => setLang(event.target.value as Lang)}>
-          {LANGS.map((option) => <option key={option.code} value={option.code} lang={option.code}>{option.label}</option>)}
+        <select disabled={saving} value={lang} className={`${inputClass} min-h-12 py-2`} onChange={(event) => setLang(event.target.value as BaseLang)}>
+          {LANGS.filter((option) => isBase(option.code)).map((option) => <option key={option.code} value={option.code} lang={option.code}>{option.label}</option>)}
         </select>
       </label>
       <section className="space-y-4 rounded-2xl border border-line bg-card p-4">

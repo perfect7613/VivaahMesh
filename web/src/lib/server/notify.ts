@@ -1,14 +1,15 @@
 import "server-only";
 import { db } from "./supabase";
 import { escapeHtml, sendWithApp } from "./telegram-bot";
-import { pickLang, type Lang } from "@/lib/i18n";
+import { pickLang, type BaseLang } from "@/lib/i18n";
+import { localized } from "./translate";
 
-const joinedCopy: Record<Lang, (name: string, family: string) => string> = {
+const joinedCopy: Record<BaseLang, (name: string, family: string) => string> = {
   en: (n, f) => `🎉 <b>${n}</b> joined with the <b>${f}</b>.`,
   hi: (n, f) => `🎉 <b>${n}</b> <b>${f}</b> के साथ जुड़ गए।`,
   mr: (n, f) => `🎉 <b>${n}</b> <b>${f}</b>सोबत सामील झाले.`,
 };
-const openCopy: Record<Lang, string> = { en: "Open our wedding", hi: "हमारी शादी खोलें", mr: "आमचं लग्न उघडा" };
+const openCopy: Record<BaseLang, string> = { en: "Open our wedding", hi: "हमारी शादी खोलें", mr: "आमचं लग्न उघडा" };
 
 /** Tell every other Telegram member of the wedding about a change, each in their own language. */
 export async function notifyWedding(weddingId: string, actorMemberId: string, kind: "joined") {
@@ -27,12 +28,11 @@ export async function notifyWedding(weddingId: string, actorMemberId: string, ki
       .map((m) => {
         const lang = pickLang(m.language);
         if (kind === "joined") {
-          return sendWithApp(
-            Number(m.tg_user_id),
-            joinedCopy[lang](escapeHtml(actor.display_name), escapeHtml(family)),
-            openCopy[lang],
-            `/tg?wedding=${weddingId}`,
-          );
+          const n = escapeHtml(actor.display_name), f = escapeHtml(family);
+          return Promise.all([
+            localized({ en: joinedCopy.en(n, f), hi: joinedCopy.hi(n, f), mr: joinedCopy.mr(n, f) }, lang),
+            localized(openCopy, lang),
+          ]).then(([text, cta]) => sendWithApp(Number(m.tg_user_id), text, cta, `/tg?wedding=${weddingId}`));
         }
       }),
   );

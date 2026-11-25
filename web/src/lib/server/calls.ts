@@ -5,8 +5,10 @@ import { flagsForMember, killSwitch } from "./flags";
 import { HttpError, logEvent, memberships } from "./weddings";
 import { appUrl, escapeHtml, sendWithApp } from "./telegram-bot";
 import { liveFactIds } from "@/lib/plan-input";
+import { runAgent } from "./agent";
 import { parseClock } from "@/lib/clock";
-import { pickLang, type Lang } from "@/lib/i18n";
+import { base, pickLang, type BaseLang } from "@/lib/i18n";
+import { localized } from "./translate";
 
 /**
  * Vendor calls (issue #6). The flow, and the rules no flag can change:
@@ -26,6 +28,9 @@ export interface VendorContact {
 }
 
 /** Demo vendor: a consenting teammate's phone, configured server-side and never sent whole to clients. */
+/** Rehearsal mode: no Sarvam number yet, so the venue's answer is simulated and labelled as such everywhere. */
+export const rehearsal = () => process.env.DEMO_REHEARSAL_CALLS === "1";
+
 export function demoVenue(): VendorContact | null {
   const phone = process.env.DEMO_VENUE_PHONE;
   if (!phone) return null;
@@ -89,21 +94,27 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
     .limit(1)
     .maybeSingle();
   return {
-    recipient: venue ? { name: venue.name, phone: maskPhone(venue.phone), language: venue.language, role: venue.role } : null,
+    recipient: venue
+      ? { name: venue.name, phone: maskPhone(venue.phone), language: venue.language, role: venue.role }
+      : rehearsal()
+        ? { name: "Shubh Mangal Lawns (rehearsal)", phone: "no phone call", language: "Hindi", role: "venue_owner" }
+        : null,
     purpose: (QUESTION[variant] ?? QUESTION.baseline)("Sangeet"),
     callerPrompt: variant,
     dialingEnabled: await killSwitch("outbound_dialing_enabled"),
-    configured: !!sarvamConfig() && !!venue,
     browserEnabled,
+    configured: (!!sarvamConfig() && !!venue) || rehearsal(),
+    rehearsal: !sarvamConfig() && rehearsal(),
     lastCall: last.data,
   };
 }
 
 export async function authorizeCall(tgUserId: number, weddingId?: string) {
   const me = await requireAuthorizer(tgUserId, weddingId);
-  const venue = demoVenue();
   const cfg = sarvamConfig();
-  if (!venue || !cfg) throw new HttpError(503, "calling_not_configured");
+  const isRehearsal = !cfg && rehearsal();
+  const venue = isRehearsal ? { role: "venue_owner" as const, name: "Shubh Mangal Lawns (rehearsal)", phone: "rehearsal", language: "Hindi" } : demoVenue();
+  if (!venue || (!cfg && !isRehearsal)) throw new HttpError(503, "calling_not_configured");
 
   const flags = await flagsForMember(me);
   if (flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser") {
@@ -127,7 +138,7 @@ export async function authorizeCall(tgUserId: number, weddingId?: string) {
       language: venue.language,
       authorized_by: me.id,
       caller_prompt: variant,
-      flags: { caller_prompt: variant, outbound_dialing_enabled: dialing, source: flags.source, policy: flags.policy.version },
+      flags: { caller_prompt: variant, outbound_dialing_enabled: dialing, source: flags.source, policy: flags.policy.version, channel: isRehearsal ? "rehearsal" : "phone" },
       status: dialing ? "dialing" : "blocked",
       error: dialing ? null : "outbound_dialing_disabled",
     })
@@ -140,14 +151,20 @@ export async function authorizeCall(tgUserId: number, weddingId?: string) {
     return call;
   }
 
-  const res = await fetch(`https://apps.sarvam.ai/api/outbounds/v1/orgs/${cfg.org}/workspaces/${cfg.workspace}/outbounds`, {
+  if (isRehearsal) {
+    const { data: updated } = await s.from("calls").update({ provider_attempt_id: `rehearsal-${call.id}` }).eq("id", call.id).select("*").single();
+    await logEvent(me.wedding_id, me.id, "call_dialing", { call_id: call.id, caller_prompt: variant, channel: "rehearsal" });
+    return { ...(updated ?? call), rehearsal: true };
+  }
+
+  const res = await fetch(`https://apps.sarvam.ai/api/outbounds/v1/orgs/${cfg!.org}/workspaces/${cfg!.workspace}/outbounds`, {
     method: "POST",
-    headers: { "X-API-Key": cfg.key!, "content-type": "application/json" },
+    headers: { "X-API-Key": cfg!.key!, "content-type": "application/json" },
     body: JSON.stringify({
       app_config: {
-        app_id: cfg.app,
-        app_version: cfg.version,
-        connection_config: { connection_id: cfg.connection, agent_phone_number: cfg.agentPhone },
+        app_id: cfg!.app,
+        app_version: cfg!.version,
+        connection_config: { connection_id: cfg!.connection, agent_phone_number: cfg!.agentPhone },
         agent_variables: {
           couple_names: `${wedding?.partner_a ?? ""} & ${wedding?.partner_b ?? ""}`,
           function_name: "Sangeet",
@@ -242,9 +259,10 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
         function_kind: claimed.function_kind,
         value: f.value,
         status: f.status,
-        channel: claimed.flags?.channel === "browser" ? "browser_agent" : "samvaad_call",
+        channel: claimed.flags?.channel === "browser" ? "browser_agent"
+          : claimed.flags?.channel === "rehearsal" ? "seed" : "samvaad_call",
         ref: claimed.provider_attempt_id ?? claimed.id,
-        wording: f.wording,
+        wording: (claimed.flags as { channel?: string })?.channel === "rehearsal" ? `[Rehearsal] ${f.wording}` : f.wording,
         supersedes: f.status === "confirmed" ? liveFactIds(prior ?? []) : [],
       })
       .select("id")
@@ -252,7 +270,15 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
     if (error) throw error;
     await s.from("calls").update({ fact_id: fact.id }).eq("id", callId);
     await logEvent(claimed.wedding_id, null, "call_result_applied", { call_id: callId, value: f.value, status: f.status });
-    await notifyCallResult(claimed.wedding_id, f.value, f.status === "confirmed");
+    // The agent explains the answer and the new best option to both families; the fixed message is the fallback.
+    let told = false;
+    try {
+      const r = await runAgent(claimed.wedding_id, "call_result");
+      told = r.status === "done" && r.actions.some((a) => a.tool === "send_message" && String(a.result).startsWith("sent"));
+    } catch (e) {
+      console.error("agent after call result failed", e);
+    }
+    if (!told) await notifyCallResult(claimed.wedding_id, f.value, f.status === "confirmed");
     return "applied";
   } catch (e) {
     // Release the claim so the replay can try again.
@@ -269,12 +295,12 @@ export async function replayPending() {
   return out;
 }
 
-const resultCopy: Record<Lang, (t: string | null) => string> = {
+const resultCopy: Record<BaseLang, (t: string | null) => string> = {
   en: (t) => (t ? `📞 The venue answered: music must stop by <b>${t}</b>. The plan has been rechecked.` : "📞 The venue call ended without a clear answer. It stays open."),
   hi: (t) => (t ? `📞 वेन्यू ने बताया: संगीत <b>${t}</b> तक बंद करना होगा। प्लान दोबारा जाँचा गया।` : "📞 वेन्यू कॉल से साफ़ जवाब नहीं मिला। सवाल खुला है।"),
   mr: (t) => (t ? `📞 वेन्यूने सांगितलं: संगीत <b>${t}</b> पर्यंत बंद करावं लागेल. प्लॅन पुन्हा तपासला.` : "📞 वेन्यू कॉलवरून स्पष्ट उत्तर मिळालं नाही. प्रश्न खुला आहे."),
 };
-const openCopy: Record<Lang, string> = { en: "See the options", hi: "विकल्प देखें", mr: "पर्याय पाहा" };
+const openCopy: Record<BaseLang, string> = { en: "See the options", hi: "विकल्प देखें", mr: "पर्याय पाहा" };
 
 async function notifyCallResult(weddingId: string, minute: number | null, confirmed: boolean) {
   const { data: members } = await db().from("members").select("tg_user_id, language").eq("wedding_id", weddingId);
@@ -283,8 +309,27 @@ async function notifyCallResult(weddingId: string, minute: number | null, confir
     (members ?? [])
       .filter((m) => m.tg_user_id)
       .map((m) => {
-        const lang = pickLang(m.language);
-        return sendWithApp(Number(m.tg_user_id), resultCopy[lang](time ? escapeHtml(time) : null), openCopy[lang], `/tg?wedding=${weddingId}`);
+        const lang = base(pickLang(m.language));
+        const tt = time ? escapeHtml(time) : null;
+        return Promise.all([
+          localized({ en: resultCopy.en(tt), hi: resultCopy.hi(tt), mr: resultCopy.mr(tt) }, lang),
+          localized(openCopy, lang),
+        ]).then(([text, cta]) => sendWithApp(Number(m.tg_user_id), text, cta, `/tg?wedding=${weddingId}`));
       }),
   );
+}
+
+/** The rehearsal venue's answer, including a mid-call correction (the last answer wins). */
+export async function simulateRehearsalAnswer(callId: string) {
+  await storeCallResult(callId, {
+    attempt_id: `rehearsal-${callId}`,
+    status: "connected",
+    final_agent_variables: { music_cutoff: "22:30", confirmed: "yes", cutoff_scope: "whole_event", vendor_wording: "Music till ten… actually, make it ten-thirty for you." },
+    interaction_transcript: [
+      { role: "agent", en_text: "Namaste, I'm an AI assistant calling for the Meera and Aarav families. By what time must amplified music stop at the Sangeet?" },
+      { role: "user", en_text: "Music till ten… actually, make it ten-thirty for you." },
+      { role: "agent", en_text: "So amplified music can play until 10:30 pm. Thank you!" },
+    ],
+  });
+  return processCallResult(callId);
 }

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
-import { LANGS, dict, type Lang } from "@/lib/i18n";
+import { LANGS, tr, type Lang } from "@/lib/i18n";
+import { haptic } from "@/lib/client/telegram";
 import { BigChoice, Question } from "@/components/ui";
 import { VivaahMark } from "@/components/landing/BrandIcons";
 
@@ -25,14 +26,14 @@ export function useSteps(total: number, onExit?: () => void) {
 }
 
 // A line in each language, so people recognise their script before reading the label.
-const SAMPLE: Record<Lang, string> = {
+const SAMPLE: Record<string, string> = {
   mr: "नमस्कार! चला, लग्नाची तयारी करूया.",
   hi: "नमस्ते! चलिए, शादी की तैयारी करते हैं।",
   en: "Hello! Let's plan the wedding.",
 };
 
 export function LanguageStep({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => void }) {
-  const t = dict[lang];
+  const t = tr(lang);
   return (
     <>
       <div className="mb-6 flex justify-start">
@@ -40,8 +41,28 @@ export function LanguageStep({ lang, setLang }: { lang: Lang; setLang: (l: Lang)
       </div>
       <Question eyebrow="VivaahMesh" title={t.chooseLanguage} hint={t.chooseLanguageHint} />
       <div className="flex flex-col gap-3">
-        {LANGS.map((l) => (
+        {LANGS.filter((l) => SAMPLE[l.code]).map((l) => (
           <BigChoice key={l.code} selected={lang === l.code} onClick={() => setLang(l.code)} title={l.label} sample={SAMPLE[l.code]} subtitle={l.code === "en" ? undefined : l.hint} />
+        ))}
+      </div>
+      {/* Every other language Sarvam supports. The app is translated into it the first time someone picks it. */}
+      <p className="mb-3 mt-8 text-[12px] font-semibold uppercase tracking-[0.14em] text-muted">{t.moreLanguages}</p>
+      <div className="grid grid-cols-2 gap-2.5">
+        {LANGS.filter((l) => !SAMPLE[l.code]).map((l) => (
+          <button
+            key={l.code}
+            type="button"
+            dir={l.rtl ? "rtl" : undefined}
+            onClick={() => {
+              haptic.select();
+              setLang(l.code);
+            }}
+            aria-pressed={lang === l.code}
+            className={`pressable flex min-h-14 flex-col items-start justify-center rounded-2xl border px-4 py-2 text-left ${lang === l.code ? "border-marigold bg-marigold-soft" : "border-line bg-card"}`}
+          >
+            <span className="text-[17px] leading-tight">{l.label}</span>
+            <span className="text-[11px] uppercase tracking-[0.1em] text-muted">{l.hint}</span>
+          </button>
         ))}
       </div>
     </>

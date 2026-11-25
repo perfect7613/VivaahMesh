@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { dict, type Lang } from "@/lib/i18n";
+import { base, tr, type Lang } from "@/lib/i18n";
 import { api, haptic, useBackButton, useMainButton } from "@/lib/client/telegram";
 import { FallbackButton } from "@/components/ui";
 import type { View } from "./types";
@@ -12,6 +12,7 @@ interface Preview {
   dialingEnabled: boolean;
   configured: boolean;
   browserEnabled: boolean;
+  rehearsal?: boolean;
   lastCall: { id: string; status: string; error: string | null; processed_at: string | null } | null;
 }
 
@@ -20,7 +21,7 @@ interface Preview {
  * (PRD user story 7). After authorizing, the screen follows the call until the answer lands.
  */
 export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; onClose: () => void }) {
-  const t = dict[lang];
+  const t = tr(lang);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [callId, setCallId] = useState<string | null>(null);
@@ -75,7 +76,7 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
     en: { authorize: "Authorize browser call", recipient: "Venue owner · browser link", share: "Share this link with the venue owner so they can consent and speak." },
     hi: { authorize: "ब्राउज़र कॉल की अनुमति दें", recipient: "वेन्यू मालिक · ब्राउज़र लिंक", share: "यह लिंक वेन्यू मालिक को भेजें ताकि वे सहमति देकर बात कर सकें।" },
     mr: { authorize: "ब्राउझर कॉलला परवानगी द्या", recipient: "कार्यक्रमस्थळाचे मालक · ब्राउझर लिंक", share: "कार्यक्रमस्थळाच्या मालकाला हा दुवा पाठवा, म्हणजे ते संमती देऊन बोलू शकतील." },
-  }[lang];
+  }[base(lang)];
   const authorizeLabel = preview?.browserEnabled ? browserCopy.authorize : t.callAuthorize;
   const canAuthorize = !!preview && (preview.browserEnabled || (preview.configured && !!preview.recipient)) && !callId;
   useMainButton(callId ? t.backToPlan : authorizeLabel, callId ? onClose : authorize, { enabled: callId ? true : canAuthorize, loading: busy, visible: !!preview });
@@ -105,6 +106,11 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
 
         {preview ? (
           <>
+            {preview.rehearsal && !preview.browserEnabled ? (
+              <p className="mb-4 rounded-2xl border border-dashed border-marigold/70 bg-marigold-soft px-4 py-3 text-[14px]">
+                🎭 Rehearsal: no phone will ring. A simulated venue answers through the same pipeline, and everything it adds is labelled as rehearsal.
+              </p>
+            ) : null}
             <dl className="overflow-hidden rounded-3xl border border-line bg-card">
               <Row label={t.callWho} value={preview.browserEnabled ? browserCopy.recipient : preview.recipient ? `${preview.recipient.name} · ${preview.recipient.phone}` : t.callNotSetUp} />
               <Row label={t.callAsk} value={`“${preview.purpose}”`} border />
