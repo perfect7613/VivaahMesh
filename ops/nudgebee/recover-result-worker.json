@@ -1,0 +1,124 @@
+{
+  "version": "v1",
+  "triggers": [
+    {
+      "type": "event",
+      "params": {
+        "on": "investigation.completed",
+        "filter": "{{ event.event_type == 'vivaahmesh_result_processing_stalled' and event.source == 'vivaahmesh' and event.subject_namespace == 'vivaahmesh' and event.subject_name == 'vivaahmesh-result-worker' and (event.labels.call_id | default('')) != '' }}"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "id": "approve_recovery",
+      "type": "core.approval",
+      "params": {
+        "approval_type": "in_app",
+        "approval_options": [
+          "approve",
+          "reject"
+        ],
+        "message": "Review event {{ Inputs.event.id }} and its investigation for call {{ Inputs.event.labels.call_id }}. Approve to turn off result_processing_paused, restore one vivaahmesh-result-worker replica, wait for readiness and replay this saved call."
+      },
+      "timeout": "30m"
+    },
+    {
+      "id": "resume_processing",
+      "type": "integrations.http",
+      "depends_on": [
+        "approve_recovery"
+      ],
+      "if": "{{ Tasks['approve_recovery'].output.status == 'approve' }}",
+      "params": {
+        "method": "POST",
+        "url": "https://api.flagsmith.com/api/v1/environments/{{ Configs.FLAGSMITH_ENVIRONMENT_ID }}/features/{{ Configs.FLAGSMITH_RESULT_PROCESSING_PAUSED_FEATURE_ID }}/versions/",
+        "headers": {
+          "Authorization": "Api-Key {{ Secrets.FLAGSMITH_ADMIN_API_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\"publish_immediately\":true,\"feature_states_to_update\":[{\"feature_segment\":null,\"enabled\":false,\"feature_state_value\":{\"type\":\"unicode\",\"string_value\":null}}]}"
+      }
+    },
+    {
+      "id": "restart_worker",
+      "type": "k8s.workload_restart",
+      "depends_on": [
+        "resume_processing"
+      ],
+      "if": "{{ Tasks['approve_recovery'].output.status == 'approve' and Tasks['resume_processing'].output.status_code >= 200 and Tasks['resume_processing'].output.status_code < 300 }}",
+      "params": {
+        "kind": "Deployment",
+        "namespace": "vivaahmesh",
+        "name": "vivaahmesh-result-worker"
+      }
+    },
+    {
+      "id": "scale_worker",
+      "type": "k8s.cli",
+      "depends_on": [
+        "restart_worker"
+      ],
+      "if": "{{ Tasks['approve_recovery'].output.status == 'approve' and Tasks['resume_processing'].output.status_code >= 200 and Tasks['resume_processing'].output.status_code < 300 }}",
+      "params": {
+        "command": "kubectl -n vivaahmesh scale deployment/vivaahmesh-result-worker --replicas=1"
+      }
+    },
+    {
+      "id": "wait_for_worker",
+      "type": "k8s.cli",
+      "depends_on": [
+        "scale_worker"
+      ],
+      "if": "{{ Tasks['approve_recovery'].output.status == 'approve' and Tasks['resume_processing'].output.status_code >= 200 and Tasks['resume_processing'].output.status_code < 300 }}",
+      "timeout": "3m",
+      "params": {
+        "command": "kubectl -n vivaahmesh rollout status deployment/vivaahmesh-result-worker --timeout=120s"
+      }
+    },
+    {
+      "id": "replay_saved_call",
+      "type": "integrations.http",
+      "depends_on": [
+        "wait_for_worker"
+      ],
+      "if": "{{ Tasks['approve_recovery'].output.status == 'approve' and Tasks['resume_processing'].output.status_code >= 200 and Tasks['resume_processing'].output.status_code < 300 }}",
+      "params": {
+        "method": "POST",
+        "url": "{{ Configs.VIVAAHMESH_BASE_URL }}/api/calls/replay",
+        "headers": {
+          "x-ops-secret": "{{ Secrets.VIVAAHMESH_OPS_SECRET }}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\"callId\":{{ Inputs.event.labels.call_id | to_json }}}"
+      }
+    },
+    {
+      "id": "resolve_incident",
+      "type": "events.store",
+      "depends_on": [
+        "replay_saved_call"
+      ],
+      "if": "{{ Tasks['approve_recovery'].output.status == 'approve' and Tasks['replay_saved_call'].output.status_code == 200 }}",
+      "params": {
+        "trigger_ai_analysis": false,
+        "trigger_notification_im": false,
+        "event": {
+          "finding_id": "{{ Inputs.event.labels.provider_result_id }}",
+          "fingerprint": "{{ Inputs.event.labels.provider_result_id }}",
+          "aggregation_key": "vivaahmesh_result_processing_stalled",
+          "finding_type": "pending_call_result",
+          "source": "vivaahmesh",
+          "subject_name": "vivaahmesh-result-worker",
+          "subject_type": "Deployment",
+          "subject_namespace": "vivaahmesh",
+          "status": "RESOLVED",
+          "priority": "INFO",
+          "title": "Saved vendor answer processed",
+          "description": "The approved workflow verified the worker rollout and the targeted replay succeeded."
+        }
+      }
+    }
+  ],
+  "timeout": "45m"
+}

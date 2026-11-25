@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vivaahmesh-result-worker
+  namespace: vivaahmesh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vivaahmesh-result-worker
+  template:
+    metadata:
+      labels:
+        app: vivaahmesh-result-worker
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: vivaahmesh-result-worker:configure-acr-image
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: vivaahmesh-result-worker
+          env:
+            - name: CALL_RESULT_PROCESSOR
+              value: worker
+            - name: TSX_DISABLE_CACHE
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: health
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: health
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi

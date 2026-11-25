@@ -1,0 +1,27 @@
+{
+  "version": "v1",
+  "triggers": [
+    {
+      "type": "schedule",
+      "params": {
+        "cron": "* * * * *",
+        "overlap_policy": "Skip",
+        "catchup_window": "60s"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "id": "scan_pending_results",
+      "type": "integrations.http",
+      "params": {
+        "method": "POST",
+        "url": "{{ Configs.VIVAAHMESH_BASE_URL }}/api/calls/incidents",
+        "headers": {
+          "x-ops-secret": "{{ Secrets.VIVAAHMESH_OPS_SECRET }}"
+        },
+        "timeout": "55s"
+      }
+    }
+  ]
+}

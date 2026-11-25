@@ -4,7 +4,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { db } from "./supabase";
 import { HttpError } from "./weddings";
 import { flagsForMember } from "./flags";
-import { browserCallDetails, processCallResult, requireAuthorizer } from "./calls";
+import { browserCallDetails, requireAuthorizer } from "./calls";
 import { findSarvamBrowserInteraction, getSarvamBrowserConfig, getSarvamBrowserSession } from "./sarvam-browser";
 import { browserEvidence } from "./browser-evidence";
 import { appUrl } from "./telegram-bot";
@@ -144,8 +144,4 @@ export async function saveBrowserResult(token: string, body: Record<string, unkn
   if (error) throw error;
   if (!data && (await tokenCall(token)).provider_attempt_id !== resultId) throw new HttpError(409, "browser_result_mismatch");
   return call.id;
-}
-
-export async function processVenueResult(callId: string) {
-  await processCallResult(callId);
 }

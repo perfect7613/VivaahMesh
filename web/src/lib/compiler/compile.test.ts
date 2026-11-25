@@ -43,6 +43,22 @@ describe("cutoff fixtures (PRD Testing Decisions → Compiler)", () => {
     expect(strict.conditional[0].moves[0].to).toEqual({ start: t("20:10"), end: t("20:30") });
   });
 
+  it("withdraws the exact makeup option and keeps other eligible slots", () => {
+    const s = snap([venueSaid(t("21:00"))]);
+    const [option] = compile(s, policy()).conditional;
+    expect(option.missing.byMinute).toBe(t("19:55"));
+    const withdrawal = { functionKind: "sangeet", proposalId: option.id, readyBy: t("19:55") };
+    expect(compile({ ...s, withdrawnMakeupOptions: [withdrawal] }, policy()).conditional
+      .some((proposal) => proposal.id === option.id)).toBe(false);
+    for (const different of [
+      { ...withdrawal, functionKind: "reception" },
+      { ...withdrawal, readyBy: t("19:45") },
+    ]) {
+      expect(compile({ ...s, withdrawnMakeupOptions: [different] }, policy()).conditional
+        .some((proposal) => proposal.id === option.id)).toBe(true);
+    }
+  });
+
   it("21:30 cutoff: a 21:00–21:20 dance fits and dinner stays at 20:30", () => {
     const s = snap([venueSaid(t("21:30"))], danceAt("21:00", "21:20"));
     const r = compile(s, allowDinner);

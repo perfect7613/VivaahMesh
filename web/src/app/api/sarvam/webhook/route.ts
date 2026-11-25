@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { processCallResult, storeCallResult, verifyCallToken } from "@/lib/server/calls";
+import { dispatchStoredResult, storeCallResult, verifyCallToken } from "@/lib/server/calls";
 
 /**
  * Sarvam posts here after every attempt. The per-call token is an HMAC of the call id, so a
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   }
   after(async () => {
     try {
-      console.log("call result", callId, await processCallResult(callId));
+      console.log("call result", callId, await dispatchStoredResult(callId));
     } catch (e) {
       console.error("process call result", e);
     }

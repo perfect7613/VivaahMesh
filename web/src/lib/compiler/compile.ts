@@ -439,7 +439,11 @@ export const compile: Compile = (input: Snapshot, policy: CompilerPolicy): Compi
         failures.push(ev.violations);
         continue;
       }
-      (ev.missing ? conditional : feasible).push(make(start, end, ev));
+      const candidate = make(start, end, ev);
+      const withdrawn = a.kind === "dance" && snapshot.withdrawnMakeupOptions?.some((option) =>
+        option.functionKind === a.functionKind && option.proposalId === candidate.id
+        && option.readyBy === start - policy.makeupBufferMin);
+      if (!withdrawn) (ev.missing ? conditional : feasible).push(candidate);
     }
 
     // Alternative: keep the activity and extend video coverage (a change to confirm, with a cost).

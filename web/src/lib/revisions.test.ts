@@ -37,6 +37,18 @@ describe("revisionFingerprint", () => {
     expect(revisionFingerprint(snap([cutoff(t("22:00"))]), DEFAULT_POLICY)).not.toBe(revisionFingerprint(snap([cutoff(t("21:30"))]), DEFAULT_POLICY));
   });
 
+  it("binds a makeup withdrawal to the stored revision", () => {
+    const before = snap([cutoff(t("21:00"))]);
+    const [option] = compile(before, DEFAULT_POLICY).conditional;
+    expect(option.missing.byMinute).toBe(t("19:55"));
+    const after = {
+      ...before,
+      withdrawnMakeupOptions: [{ functionKind: "sangeet", proposalId: option.id, readyBy: t("19:55") }],
+    };
+    expect(revisionFingerprint(after, DEFAULT_POLICY)).not.toBe(revisionFingerprint(before, DEFAULT_POLICY));
+    expect(compile(after, DEFAULT_POLICY).conditional.map((proposal) => proposal.id)).not.toContain(option.id);
+  });
+
   it("does not change when a vendor repeats an answer already on file", () => {
     const first = snap([cutoff(t("22:00"), "c1")]);
     const repeat = snap([cutoff(t("22:00"), "c1"), { ...cutoff(t("22:00"), "c2"), supersedes: "c1" }]);

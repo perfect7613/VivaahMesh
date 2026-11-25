@@ -1,0 +1,10 @@
+**
+!web
+!web/package.json
+!web/package-lock.json
+!web/tsconfig.json
+!web/src
+!web/src/lib
+!web/src/lib/**
+!web/scripts
+!web/scripts/result-worker.ts
