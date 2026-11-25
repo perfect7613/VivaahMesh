@@ -96,8 +96,8 @@ async function resolve(identity: string, traits: Record<string, string | boolean
 }
 
 /** Per-member flags: UI rollouts that may legitimately differ per household, language or role. */
-export function flagsFor(t: ViewerTraits): Promise<ResolvedFlags> {
-  return resolve(`wedding:${t.weddingId}:member:${t.memberId}`, {
+export function flagsFor(t: ViewerTraits, identifier = `wedding:${t.weddingId}:member:${t.memberId}`): Promise<ResolvedFlags> {
+  return resolve(identifier, {
     language: t.language,
     household_side: t.householdSide ?? "",
     role: t.role,

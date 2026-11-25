@@ -8,7 +8,9 @@ import { InvitationCard, formatDate } from "./InvitationCard";
 import { FunctionSheet } from "./FunctionSheet";
 import { PlanCard } from "./PlanCard";
 import { GuestsCard } from "./GuestsCard";
+import { VendorsCard } from "./VendorsCard";
 import { canOpenStage } from "@/lib/stages";
+import { FamilyVoice } from "./FamilyVoice";
 import { CallScreen } from "./CallScreen";
 import { AgentFeed } from "./AgentFeed";
 import { inviteLink, shareInvite } from "./shared";
@@ -202,10 +204,21 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
             <PlanCard view={view} lang={lang} onCallVenue={() => setCalling(true)} />
           </Section>
 
+          {view.functions.some((fn) => fn.kind === "sangeet") ? (
+            <FamilyVoice key={`family-voice:${view.wedding.id}`} weddingId={view.wedding.id} lang={lang} />
+          ) : null}
+
           {/* Issue #12: RSVPs and the gift registry open once the wedding reaches the guests stage (and stage_guests is on). */}
           {canOpenStage(view.wedding.stage, "guests", on) ? (
             <Section title={t.guestsTitle}>
               <GuestsCard view={view} lang={lang} />
+            </Section>
+          ) : null}
+
+          {/* Issue #13: vendors and their run sheet open once the wedding reaches the day-of stage (and stage_day_of is on). */}
+          {canOpenStage(view.wedding.stage, "day_of", on) ? (
+            <Section title={t.vendorsTitle}>
+              <VendorsCard view={view} lang={lang} />
             </Section>
           ) : null}
 

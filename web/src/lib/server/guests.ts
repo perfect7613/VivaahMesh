@@ -1,19 +1,14 @@
 import "server-only";
 import { db } from "./supabase";
-import { weddingFlags } from "./flags";
+import { requireStageOpen } from "./stage-gate";
 import { HttpError, logEvent, memberships } from "./weddings";
-import { canOpenStage } from "@/lib/stages";
 import {
   buildFamilySummary, buildGuestView,
   type Attendance, type Meal, type Reservation, type RegistryItem, type Rsvp, type RsvpInput,
 } from "@/lib/guests";
 
 /** Guests and the registry open only once the wedding reaches `guests` AND `stage_guests` is on. */
-async function requireGuestsStage(weddingId: string, stage: string) {
-  const flags = await weddingFlags(weddingId, stage);
-  const on = Object.fromEntries(Object.entries(flags.features).map(([k, v]) => [k, v.enabled]));
-  if (!canOpenStage(stage, "guests", on)) throw new HttpError(403, "stage_locked");
-}
+const requireGuestsStage = (weddingId: string, stage: string) => requireStageOpen(weddingId, stage, "guests");
 
 // ------------------------------------------------------------------ the guest's side (by access code)
 

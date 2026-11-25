@@ -34,7 +34,7 @@ export interface Fact {
   value: number | null;
   status: "confirmed" | "conditional" | "unresolved";
   /** Vendor's own wording plus where it came from (call id, quote doc, typed reply). */
-  source: { channel: "samvaad_call" | "browser_agent" | "quote" | "typed" | "seed"; ref: string; wording: string };
+  source: { channel: "samvaad_call" | "browser_agent" | "quote" | "typed" | "seed" | "dictate"; ref: string; wording: string };
   /** Earlier fact id(s) this one replaces, e.g. a mid-call correction or a typed fix of a contradiction. */
   supersedes?: string | string[];
 }

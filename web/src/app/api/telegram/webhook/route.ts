@@ -16,7 +16,10 @@ interface TgMessage {
   caption?: string;
   reply_to_message?: { from?: { id: number; is_bot?: boolean } };
   new_chat_members?: { id: number; is_bot?: boolean }[];
-  voice?: { file_id: string; duration: number };
+  voice?: { file_id: string; duration: number; mime_type?: string };
+  audio?: { file_id: string; duration: number; mime_type?: string; file_name?: string };
+  video_note?: { file_id: string; duration: number };
+  document?: { file_id: string; mime_type?: string; file_name?: string };
 }
 
 /**
@@ -73,16 +76,22 @@ async function handle(msg: TgMessage) {
   const { data: fam } = await db().from("households").select("name").eq("id", me.household_id).maybeSingle();
   const family = escapeHtml(fam?.name ?? "");
 
-  if (msg.voice) {
+  const speech = speechOf(msg);
+  if (speech) {
     // Sarvam Saaras transcribes the note in the speaker's language; the agent then replies.
     await tg("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
     let transcript: { transcript: string; languageCode: string | null } | null = null;
     try {
-      if (msg.voice.duration <= 30) transcript = await transcribe(await downloadFile(msg.voice.file_id));
+      if ((speech.duration ?? 0) <= 30) transcript = await transcribe(await downloadFile(speech.fileId), speech.name, speech.mime);
     } catch (e) {
-      console.error("voice transcription failed", e);
+      console.error("voice transcription failed", speech.mime, e);
     }
-    const note = transcript?.transcript || `🎙️ Voice note (${msg.voice.duration}s)`;
+    if (!transcript?.transcript) {
+      // Never silent: say what happened, in their language.
+      const why = (speech.duration ?? 0) > 30 ? "That voice note is longer than 30 seconds. Please send shorter notes (under 30s) so I can understand them." : "I couldn't make out that voice note. Could you send it again, or type it?";
+      return send(chatId, await localized({ en: why, hi: why, mr: why }, lang));
+    }
+    const note = transcript.transcript;
     const id = await addPriorities(me, [], note, "household", "voice");
     if (transcript && id) {
       await db().from("priorities").update({ transcript: transcript.transcript, transcript_lang: transcript.languageCode }).eq("id", id);
@@ -111,6 +120,18 @@ async function agentReplied(weddingId: string, trigger: "message" | "voice", mem
     console.error("agent failed", e);
     return false;
   }
+}
+
+/**
+ * Every way Telegram can carry speech: a recorded voice note, an audio file sent from the attachment
+ * menu (often m4a/mp3), an audio file sent "as a document", or a round video note.
+ */
+function speechOf(msg: TgMessage): { fileId: string; duration: number | null; mime: string; name: string } | null {
+  if (msg.voice) return { fileId: msg.voice.file_id, duration: msg.voice.duration, mime: msg.voice.mime_type ?? "audio/ogg", name: "voice.ogg" };
+  if (msg.audio) return { fileId: msg.audio.file_id, duration: msg.audio.duration, mime: msg.audio.mime_type ?? "audio/mpeg", name: msg.audio.file_name ?? "audio.mp3" };
+  if (msg.document?.mime_type?.startsWith("audio/")) return { fileId: msg.document.file_id, duration: null, mime: msg.document.mime_type, name: msg.document.file_name ?? "audio" };
+  if (msg.video_note) return { fileId: msg.video_note.file_id, duration: msg.video_note.duration, mime: "video/mp4", name: "note.mp4" };
+  return null;
 }
 
 async function downloadFile(fileId: string): Promise<ArrayBuffer> {
@@ -142,6 +163,7 @@ async function handleGroup(msg: TgMessage) {
   const bot = await me();
   const raw = (msg.text ?? msg.caption ?? "").trim();
   const s = db();
+  const speech = speechOf(msg);
 
   if (msg.new_chat_members?.some((m) => m.id === bot.id)) {
     return send(chatId, "Namaste 🙏 I'm VivaahMesh. To connect this group to your family's plan, the couple or a parent sends:\n<code>/link FAMILYCODE</code>\n(the code is on your family's invite card in the app).");
@@ -177,9 +199,9 @@ async function handleGroup(msg: TgMessage) {
 
   let text = raw;
   let kind: "text" | "voice" = "text";
-  if (!text && msg.voice && msg.voice.duration <= 60) {
+  if (!text && speech && (speech.duration ?? 0) <= 30) {
     try {
-      text = (await transcribe(await downloadFile(msg.voice.file_id))).transcript;
+      text = (await transcribe(await downloadFile(speech.fileId), speech.name, speech.mime)).transcript;
       kind = "voice";
     } catch (e) {
       console.error("group voice transcription failed", e);
