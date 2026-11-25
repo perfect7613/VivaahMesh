@@ -5,7 +5,6 @@ import { flagsForMember, killSwitch } from "./flags";
 import { HttpError, logEvent, memberships } from "./weddings";
 import { appUrl, escapeHtml, sendWithApp } from "./telegram-bot";
 import { runAgent } from "./agent";
-import { parseClock } from "@/lib/clock";
 import { base, pickLang, type BaseLang } from "@/lib/i18n";
 import { localized } from "./translate";
 import { venueEvidence, venueFollowUpCount } from "@/lib/venue-evidence";
@@ -244,9 +243,17 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
     ?? (fromAnalytics ? await fetchSarvamTranscript(payload.interaction_id!) :
       (payload.interaction_transcript ?? []).map((turn) => ({ role: turn.role, text: turn.en_text })));
   const variables = payload.final_agent_variables ?? {};
+  let functionDate: string | null = null;
+  if (connected && variables.cutoff_date != null) {
+    const { data: eventFunction, error: dateError } = await s.from("functions").select("on_date")
+      .eq("wedding_id", call.wedding_id).eq("kind", call.function_kind).maybeSingle();
+    if (dateError) throw dateError;
+    functionDate = eventFunction?.on_date ?? null;
+  }
   const facts = venueEvidence({
     callId,
     functionKind: call.function_kind,
+    functionDate,
     channel: call.flags?.channel === "browser" ? "browser_agent" : "samvaad_call",
     transcript,
     connected,
@@ -259,13 +266,6 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
       cutoff_status: variables.cutoff_status ?? (variables.confirmed === "no" ? "unresolved" : undefined),
     },
   });
-  if (connected && call.flags?.channel === "rehearsal") {
-    const minute = parseClock(String(variables.music_cutoff ?? ""));
-    if (minute !== null) {
-      facts[0] = { ...facts[0], value: minute, status: "confirmed",
-        source: { ...facts[0].source, wording: String(variables.vendor_wording ?? "") } };
-    }
-  }
   const { data: applied, error: applyError } = await s.rpc("apply_call_evidence", {
     p_call: callId, p_evidence: facts, p_follow_ups: venueFollowUpCount({ connected, transcript }),
   });
@@ -286,7 +286,8 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
 
 /** Replays every stored-but-unapplied result (NudgeBee recovery runbook step 3). */
 export async function replayPending() {
-  const { data } = await db().from("calls").select("id").not("result", "is", null).is("processed_at", null).order("result_received_at");
+  const { data, error } = await db().from("calls").select("id").not("result", "is", null).is("processed_at", null).order("result_received_at");
+  if (error) throw error;
   const out: Record<string, string> = {};
   for (const c of data ?? []) out[c.id] = await processCallResult(c.id);
   return out;
@@ -318,14 +319,15 @@ async function notifyCallResult(weddingId: string, minute: number | null, confir
 
 /** The rehearsal venue's answer, including a mid-call correction (the last answer wins). */
 export async function simulateRehearsalAnswer(callId: string) {
+  const reply = "Amplified music can play until 10 pm… actually, make it 10:30 pm for you.";
   await storeCallResult(callId, {
     attempt_id: `rehearsal-${callId}`,
     status: "connected",
-    final_agent_variables: { music_cutoff: "22:30", confirmed: "yes", cutoff_scope: "whole_event", vendor_wording: "Music till ten… actually, make it ten-thirty for you." },
-    interaction_transcript: [
-      { role: "agent", en_text: "Namaste, I'm an AI assistant calling for the Meera and Aarav families. By what time must amplified music stop at the Sangeet?" },
-      { role: "user", en_text: "Music till ten… actually, make it ten-thirty for you." },
-      { role: "agent", en_text: "So amplified music can play until 10:30 pm. Thank you!" },
+    final_agent_variables: { cutoff_status: "confirmed", cutoff_scope: "amplified_music", cutoff_wording: reply },
+    original_transcript: [
+      { role: "agent", text: "Namaste, I'm an AI assistant calling for the Meera and Aarav families. By what time must amplified music stop at the Sangeet?" },
+      { role: "user", text: reply },
+      { role: "agent", text: "So amplified music can play until 10:30 pm. Thank you!" },
     ],
   });
   return processCallResult(callId);
