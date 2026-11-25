@@ -3,6 +3,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import { db } from "./supabase";
 import { HttpError } from "./weddings";
 import type { Lang } from "@/lib/i18n";
+import { takeVoiceRequest, voiceClipForm } from "./voice-request";
 
 type Enquiry = {
   id: string;
@@ -18,7 +19,6 @@ type Enquiry = {
 
 const SELECT = "id,function_kind,proposal_id,artist_name,due_minute,status,expires_at,reply_source,reply_wording";
 const TOKEN = /^[\w-]{43}$/;
-const MAX_CLIP_BYTES = 3 * 1024 * 1024;
 const LANGUAGE: Record<Lang, string> = { en: "en-IN", hi: "hi-IN", mr: "mr-IN" };
 
 function sign(payload: string) {
@@ -127,15 +127,8 @@ export async function recordMakeupReply(token: string, input: Record<string, unk
 
 export async function dictateMakeupReply(token: string, req: Request) {
   if ((await makeupReplyView(token)).status !== "open") throw new HttpError(409, "makeup_reply_already_recorded");
-  if (Number(req.headers.get("content-length")) > MAX_CLIP_BYTES + 10_000) throw new HttpError(413, "audio_too_large");
-  const form = await req.formData().catch(() => null);
-  const clip = form?.get("audio");
-  const language = form?.get("language");
-  if (!(clip instanceof File) || !clip.size || !/^(?:audio\/(?:webm|mp4|ogg)|video\/webm)$/.test(clip.type.split(";")[0])) {
-    throw new HttpError(400, "audio_clip_required");
-  }
-  if (clip.size > MAX_CLIP_BYTES) throw new HttpError(413, "audio_too_large");
-  if (language !== "en" && language !== "hi" && language !== "mr") throw new HttpError(400, "invalid_language");
+  const { audio: clip, language } = await voiceClipForm(req);
+  await takeVoiceRequest(tokenHash(token), "makeup-dictate");
   const key = process.env.SARVAM_API_KEY;
   if (!key) throw new HttpError(503, "sarvam_models_unconfigured");
   const body = new FormData();
@@ -154,11 +147,12 @@ export async function dictateMakeupReply(token: string, req: Request) {
 }
 
 export async function makeupResponse(run: () => Promise<unknown>) {
+  const headers = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
   try {
-    return Response.json(await run(), { headers: { "Cache-Control": "no-store" } });
+    return Response.json(await run(), { headers });
   } catch (error) {
-    if (error instanceof HttpError) return Response.json({ error: error.message }, { status: error.status });
-    console.error(error);
-    return Response.json({ error: "server_error" }, { status: 500 });
+    if (error instanceof HttpError) return Response.json({ error: error.message }, { status: error.status, headers });
+    console.error("Makeup reply request failed.");
+    return Response.json({ error: "server_error" }, { status: 500, headers });
   }
 }

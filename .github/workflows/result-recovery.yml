@@ -4,6 +4,7 @@ on:
     paths:
       - 'web/**'
       - 'supabase/migrations/**'
+      - 'supabase/tests/**'
       - 'ops/**'
       - '.github/workflows/result-recovery.yml'
   push:
@@ -11,6 +12,7 @@ on:
     paths:
       - 'web/**'
       - 'supabase/migrations/**'
+      - 'supabase/tests/**'
       - 'ops/**'
       - '.github/workflows/result-recovery.yml'
 permissions:
@@ -20,8 +22,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
           cache: npm
@@ -43,4 +47,10 @@ jobs:
       - name: Verify the worker runtime on a read-only filesystem
         run: |
           docker run --rm --read-only --env TSX_DISABLE_CACHE=1 --entrypoint node vivaahmesh-result-worker:ci \
-            --conditions=react-server --import tsx -e "const { processCallResult } = require('./src/lib/server/calls.ts'); if (typeof processCallResult !== 'function' || process.getuid() === 0) process.exit(1)"
+            --conditions=react-server --import tsx -e "const { processCallResult } = require('./src/lib/server/calls.ts'); if (require('node:fs').existsSync('/usr/local/lib/node_modules') || typeof processCallResult !== 'function' || process.getuid() === 0) process.exit(1)"
+      - name: Scan the built worker for high and critical vulnerabilities
+        run: |
+          curl --fail --location --retry 3 https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz -o "$RUNNER_TEMP/trivy.tar.gz"
+          echo "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf  $RUNNER_TEMP/trivy.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP" trivy
+          "$RUNNER_TEMP/trivy" image --image-src docker --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --no-progress vivaahmesh-result-worker:ci

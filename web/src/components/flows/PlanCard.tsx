@@ -37,7 +37,7 @@ const POLL_MS = 5000;
 /**
  * Conflicts and ranked proposals, rendered identically on every household's phone: the facts
  * come from the one shared compile result, only the labels are in the viewer's language.
- * (Realtime push arrives with the shared-plan slice; until then this refreshes every few seconds.)
+ * Realtime invalidation complements polling.
  */
 export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; onCallVenue?: () => void }) {
   const t = tr(lang);
@@ -66,7 +66,7 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
     }
   }, [view.wedding.id]);
   // Live: another phone changed something → refetch within a second (polling remains the fallback).
-  useWeddingLive(view.wedding.id, load);
+  useWeddingLive(view.realtimeTopic, load);
 
   useEffect(() => {
     const first = setTimeout(load, 0);
@@ -311,7 +311,7 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
                     artist={p.missing.askWhom}
                     readyBy={p.missing.byMinute}
                     enquired={makeupEnquiries.find((enquiry) => enquiry.proposalId === p.id && enquiry.readyBy === p.missing.byMinute)}
-                    canAsk={view.me.isCouple || view.me.role === "parent"}
+                    canAsk={view.me.canManage}
                     lang={lang}
                     onUpdate={load}
                   />
@@ -337,7 +337,7 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
             {result.blocking.map((b) => (
               <li key={`${b.functionKind}|${b.constraint}|${b.whoCanResolve}`} className="rounded-2xl border border-line bg-card px-4 py-3">
                 <span>{blockingText(b)}</span> <span className="text-muted">→ {resolverText(b.resolver)}</span>
-                {b.code === "cutoff_unconfirmed" && onCallVenue && (view.me.isCouple || view.me.role === "parent") ? (
+                {b.code === "cutoff_unconfirmed" && onCallVenue && (view.me.canManage) ? (
                   <button
                     type="button"
                     onClick={onCallVenue}

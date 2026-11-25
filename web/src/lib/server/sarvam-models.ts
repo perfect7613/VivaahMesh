@@ -4,25 +4,7 @@ import type { BaseLang as Lang } from "@/lib/i18n";
 import { dictatedDinnerTime } from "@/lib/family-plan";
 import { HttpError } from "./weddings";
 
-const MAX_AUDIO_BYTES = 3 * 1024 * 1024;
 const CODE: Record<Lang, string> = { en: "en-IN", hi: "hi-IN", mr: "mr-IN" };
-const AUDIO = /^(?:audio\/(?:wav|wave|x-wav|mpeg|mp3|mp4|aac|x-m4a|ogg|opus|webm|flac)|video\/webm)$/;
-
-export async function voiceClipForm(req: Request): Promise<{ audio: File; language: Lang; weddingId: FormDataEntryValue | null | undefined }> {
-  const declaredSize = Number(req.headers.get("content-length"));
-  if (declaredSize > MAX_AUDIO_BYTES + 10_000) throw new HttpError(413, "audio_too_large");
-  const data = await req.formData().catch(() => null);
-  const audio = data?.get("audio");
-  const language = data?.get("language");
-  if (!(audio instanceof File) || audio.size === 0 || !AUDIO.test(audio.type.split(";")[0])) {
-    throw new HttpError(400, "audio_clip_required");
-  }
-  if (audio.size > MAX_AUDIO_BYTES) throw new HttpError(413, "audio_too_large");
-  if (language !== "mr" && language !== "hi" && language !== "en") {
-    throw new HttpError(400, "invalid_language");
-  }
-  return { audio, language, weddingId: data?.get("weddingId") };
-}
 
 async function modelJson(path: string, body: string | FormData) {
   const key = process.env.SARVAM_MODEL_API_KEY || process.env.SARVAM_API_KEY;

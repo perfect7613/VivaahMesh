@@ -1,10 +1,5 @@
 import "server-only";
-
-/**
- * Web tools for the agent, powered by Firecrawl (search + scrape to markdown). Without
- * FIRECRAWL_API_KEY they fall back to DuckDuckGo's HTML endpoint and a plain fetch. Results are data for the model, never
- * instructions, and the agent is told to cite links.
- */
+import { isIP } from "node:net";
 
 export interface SearchHit {
   title: string;
@@ -24,6 +19,21 @@ const decode = (s: string) =>
     .replace(/&nbsp;/g, " ")
     .trim();
 
+/** Accept domain names from search results. Page fetching stays off the app's network. */
+function publicResultUrl(value: string): string | null {
+  try {
+    const u = new URL(value);
+    const host = u.hostname.replace(/\.$/, "");
+    if (!["https:", "http:"].includes(u.protocol) || u.username || u.password || u.port ||
+        isIP(host.replace(/^\[|\]$/g, "")) || !host.includes(".") ||
+        /\.(?:localhost|internal|local|test|invalid|example|onion|arpa)$/.test(host)) return null;
+    u.hash = "";
+    return u.href;
+  } catch {
+    return null;
+  }
+}
+
 export async function webSearch(query: string, limit = 6): Promise<SearchHit[]> {
   const q = query.slice(0, 200);
   const fc = process.env.FIRECRAWL_API_KEY;
@@ -32,63 +42,56 @@ export async function webSearch(query: string, limit = 6): Promise<SearchHit[]> 
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${fc}` },
       body: JSON.stringify({ query: q, limit, country: "in" }),
-      signal: AbortSignal.timeout(20_000),
+      redirect: "error",
+      signal: AbortSignal.timeout(12_000),
     });
-    const j = (await r.json().catch(() => ({}))) as { data?: { web?: { title: string; url: string; description?: string }[] } };
-    if (r.ok && j.data?.web) return j.data.web.map((x) => ({ title: x.title, url: x.url, snippet: (x.description ?? "").slice(0, 300) }));
+    const j = (await r.json().catch(() => ({}))) as { data?: { web?: { title?: unknown; url?: unknown; description?: unknown }[] } };
+    if (r.ok && Array.isArray(j?.data?.web)) return j.data.web.slice(0, limit).flatMap((x) => {
+      const url = typeof x?.url === "string" ? publicResultUrl(x.url) : null;
+      return url && typeof x.title === "string" ? [{
+        title: x.title.slice(0, 200), url, snippet: typeof x.description === "string" ? x.description.slice(0, 300) : "",
+      }] : [];
+    });
   }
   const r = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}&kl=in-en`, {
     headers: { "user-agent": UA, "accept-language": "en-IN,en;q=0.9" },
-    signal: AbortSignal.timeout(15_000),
+    redirect: "error",
+    signal: AbortSignal.timeout(12_000),
   });
+  if (!r.ok) return [];
   const html = await r.text();
   const hits: SearchHit[] = [];
   const re = /class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
   for (let m; (m = re.exec(html)) && hits.length < limit; ) {
     let url = m[1];
     const uddg = /[?&]uddg=([^&]+)/.exec(url);
-    if (uddg) url = decodeURIComponent(uddg[1]);
+    try {
+      if (uddg) url = decodeURIComponent(uddg[1]);
+    } catch {
+      continue;
+    }
     if (url.startsWith("//")) url = `https:${url}`;
-    if (!/^https?:\/\//.test(url) || url.includes("duckduckgo.com/y.js")) continue;
-    hits.push({ title: decode(m[2]), url, snippet: decode(m[3]).slice(0, 300) });
+    const resultUrl = publicResultUrl(url);
+    if (resultUrl && !resultUrl.includes("duckduckgo.com/y.js")) {
+      hits.push({ title: decode(m[2]).slice(0, 200), url: resultUrl, snippet: decode(m[3]).slice(0, 300) });
+    }
   }
   return hits;
 }
 
-/** Reads a public web page as plain text (first ~6k characters). Only http(s), no private hosts. */
+/** The caller must authorize this exact URL using the current public search results. */
 export async function readPage(url: string): Promise<string> {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return "error: not a URL";
-  }
-  if (!/^https?:$/.test(u.protocol) || /^(localhost|127\.|10\.|192\.168\.|169\.254\.|\[?::1)/.test(u.hostname) || u.hostname.endsWith(".internal")) {
-    return "error: only public http(s) pages";
-  }
+  const publicUrl = publicResultUrl(url);
   const fc = process.env.FIRECRAWL_API_KEY;
-  if (fc) {
-    const f = await fetch("https://api.firecrawl.dev/v2/scrape", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${fc}` },
-      body: JSON.stringify({ url: u.toString(), formats: ["markdown"], onlyMainContent: true }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const j = (await f.json().catch(() => ({}))) as { data?: { markdown?: string } };
-    if (f.ok && j.data?.markdown) return j.data.markdown.slice(0, 6000);
-  }
-  const r = await fetch(u, { headers: { "user-agent": UA }, redirect: "follow", signal: AbortSignal.timeout(15_000) });
-  if (!r.ok) return `error: HTTP ${r.status}`;
-  const type = r.headers.get("content-type") ?? "";
-  if (!type.includes("html") && !type.includes("text")) return `error: not a text page (${type})`;
-  const html = (await r.text()).slice(0, 400_000);
-  const text = decode(
-    html
-      .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi, " ")
-      .replace(/<\/(p|div|li|h\d|tr|br)>/gi, "\n"),
-  )
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n\s*\n+/g, "\n")
-    .trim();
-  return text.slice(0, 6000);
+  if (!publicUrl || !fc) return "Page text unavailable. Use the search result snippets.";
+  const f = await fetch("https://api.firecrawl.dev/v2/scrape", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${fc}` },
+    body: JSON.stringify({ url: publicUrl, formats: ["markdown"], onlyMainContent: true }),
+    redirect: "error",
+    signal: AbortSignal.timeout(12_000),
+  });
+  const j = (await f.json().catch(() => ({}))) as { data?: { markdown?: unknown } };
+  if (f.ok && typeof j?.data?.markdown === "string") return j.data.markdown.slice(0, 6000);
+  return "Page text unavailable. Use the search result snippets.";
 }

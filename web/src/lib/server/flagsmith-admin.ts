@@ -12,12 +12,13 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
   if (!key) throw new Error("FLAGSMITH_ADMIN_API_KEY missing");
   const r = await fetch(API + path, {
     method,
+    redirect: "error",
     headers: { authorization: `Api-Key ${key}`, "content-type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(15_000),
   });
+  if (!r.ok) throw new Error(`Flagsmith rejected ${method} (HTTP ${r.status})`);
   const t = await r.text();
-  if (!r.ok) throw new Error(`flagsmith ${method} ${path} → ${r.status} ${t.slice(0, 200)}`);
   return (t ? JSON.parse(t) : {}) as T;
 }
 type List<T> = T[] | { results: T[] };

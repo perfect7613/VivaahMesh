@@ -117,6 +117,9 @@ const en = {
   teamHandling: "Your planning agent",
   thePlan: "The plan",
   families: "Families",
+  grantParentAccess: "Grant parent access",
+  removeParentAccess: "Remove parent access",
+  parentAccessError: "Parent access could not be updated. Try again.",
   waitingToJoin: "Waiting to join",
   joined: (n: number) => (n === 1 ? "1 person" : `${n} people`),
   priorities: "What the families asked for",
@@ -285,6 +288,9 @@ const hi: Dict = {
   teamHandling: "आपका प्लानिंग एजेंट",
   thePlan: "योजना",
   families: "परिवार",
+  grantParentAccess: "माता-पिता की अनुमति दें",
+  removeParentAccess: "माता-पिता की अनुमति हटाएँ",
+  parentAccessError: "अनुमति अपडेट नहीं हो सकी। फिर कोशिश करें।",
   waitingToJoin: "जुड़ना बाक़ी",
   joined: (n) => `${n} लोग`,
   priorities: "परिवारों की इच्छाएँ",
@@ -447,6 +453,9 @@ const mr: Dict = {
   teamHandling: "तुमचा प्लॅनिंग एजंट",
   thePlan: "योजना",
   families: "कुटुंबं",
+  grantParentAccess: "पालकांना परवानगी द्या",
+  removeParentAccess: "पालकांची परवानगी काढा",
+  parentAccessError: "परवानगी बदलता आली नाही. पुन्हा प्रयत्न करा.",
   waitingToJoin: "सामील व्हायचंय",
   joined: (n) => `${n} जण`,
   priorities: "कुटुंबांच्या इच्छा",
@@ -573,8 +582,40 @@ export function serializeEnglish(): Serialized {
   return out;
 }
 
+/** Project untrusted translations onto the English dictionary's exact shape. */
+export function validateUiStrings(input: unknown, source = serializeEnglish()): Serialized {
+  const clean: Serialized = {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return clean;
+  const candidate = input as Record<string, unknown>;
+  const validText = (text: unknown, original: string): text is string => {
+    if (typeof text !== "string" || !text.trim() || text.length > Math.max(250, original.length * 5)) return false;
+    const tokens = (value: string) => (value.match(/⟦\d+⟧/g) ?? []).sort().join("");
+    return tokens(text) === tokens(original);
+  };
+  for (const [key, original] of Object.entries(source)) {
+    if (!Object.hasOwn(candidate, key)) continue;
+    const text = candidate[key];
+    if (typeof original === "string") {
+      if (validText(text, original)) clean[key] = text;
+    } else if (text && typeof text === "object" && !Array.isArray(text)) {
+      const nested = text as Record<string, unknown>;
+      if ("$fn" in original) {
+        if (Object.hasOwn(nested, "$fn") && validText(nested.$fn, original.$fn)) clean[key] = { $fn: nested.$fn };
+      } else {
+        const entries = Object.entries(original).flatMap(([name, value]) =>
+          Object.hasOwn(nested, name) && validText(nested[name], value) ? [[name, nested[name]]] : [],
+        );
+        clean[key] = Object.fromEntries(entries);
+      }
+    }
+  }
+  return clean;
+}
+
 /** Turns a translated serialized dictionary back into a usable one and registers it. */
-export function registerDict(lang: string, data: Serialized) {
+export function registerDict(lang: string, input: unknown) {
+  if (isBase(lang) || !LANGS.some((entry) => entry.code === lang)) return;
+  const data = validateUiStrings(input);
   const d: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(en)) {
     const t = data[k];
@@ -599,7 +640,7 @@ export const botCopy: Record<BaseLang, {
   welcome: (name: string) => string; startCta: string;
   welcomeBack: (couple: string) => string; openCta: string;
   invited: (couple: string, family: string) => string; joinCta: string;
-  inviteInvalid: string; saved: (family: string) => string; notMember: string; voiceSoon: string;
+  inviteInvalid: string; saved: (family: string) => string; notMember: string; voiceSoon: string; searchUsage: string; searchUnavailable: string; agentRequestLimit: string;
 }> = {
   en: {
     welcome: (n) => `Namaste ${n} 🌼\n\nI'm <b>Vivaah</b>. I keep both families on one wedding plan, each in their own language.\n\nLet's set up your wedding. It takes about a minute.`,
@@ -611,6 +652,9 @@ export const botCopy: Record<BaseLang, {
     inviteInvalid: "This invite link doesn't work any more. Ask the family to send a fresh one.",
     saved: (f) => `Saved ✅ It's in the <b>${f}</b>'s private notes. You can share it with both families from the app.`,
     notMember: "Set up or join a wedding first, then anything you send me is saved to your plan.",
+    searchUsage: "Type /search followed by public search terms, like Pune wedding venues.",
+    searchUnavailable: "Public search is unavailable right now. Try again in a moment.",
+    agentRequestLimit: "You’ve reached today’s planning agent limit. Try again later.",
     voiceSoon: "Got your voice note 🎙️ I've saved it, and the planner will turn it into a written request for you to check.",
   },
   hi: {
@@ -623,6 +667,9 @@ export const botCopy: Record<BaseLang, {
     inviteInvalid: "यह आमंत्रण लिंक अब काम नहीं करता। परिवार से नया लिंक माँगें।",
     saved: (f) => `सेव हो गया ✅ यह <b>${f}</b> के निजी नोट्स में है। ऐप से दोनों परिवारों के साथ साझा कर सकते हैं।`,
     notMember: "पहले कोई शादी सेट करें या उससे जुड़ें, फिर जो भी भेजेंगे वह आपकी योजना में सेव होगा।",
+    searchUsage: "/search के बाद खोज के लिए सार्वजनिक शब्द लिखें, जैसे पुणे के शादी स्थल।",
+    searchUnavailable: "सार्वजनिक खोज अभी उपलब्ध नहीं है। थोड़ी देर में फिर कोशिश करें।",
+    agentRequestLimit: "आपने आज के लिए एजेंट की अनुरोध सीमा पूरी कर ली है। बाद में फिर कोशिश करें।",
     voiceSoon: "आपका वॉइस नोट मिल गया 🎙️ सेव कर लिया है, योजनाकार इसे लिखित अनुरोध में बदलेंगे ताकि आप जाँच सकें।",
   },
   mr: {
@@ -635,6 +682,9 @@ export const botCopy: Record<BaseLang, {
     inviteInvalid: "हे आमंत्रण लिंक आता चालत नाही. कुटुंबाकडून नवीन लिंक मागवा.",
     saved: (f) => `सेव्ह झालं ✅ हे <b>${f}</b>च्या खाजगी नोट्समध्ये आहे. ॲपमधून दोन्ही कुटुंबांसोबत शेअर करता येईल.`,
     notMember: "आधी लग्न सेट करा किंवा त्यात सामील व्हा, मग तुम्ही जे पाठवाल ते योजनेत सेव्ह होईल.",
+    searchUsage: "/search नंतर सार्वजनिक शोधासाठी शब्द टाइप करा, उदा. पुण्यातील लग्नाची ठिकाणे.",
+    searchUnavailable: "सार्वजनिक शोध सध्या उपलब्ध नाही. थोड्या वेळाने पुन्हा प्रयत्न करा.",
+    agentRequestLimit: "तुमची आजची एजंट विनंती मर्यादा संपली आहे. नंतर पुन्हा प्रयत्न करा.",
     voiceSoon: "तुमची व्हॉइस नोट मिळाली 🎙️ सेव्ह केली आहे, नियोजक ती लिखित विनंतीत बदलतील म्हणजे तुम्ही तपासू शकाल.",
   },
 };

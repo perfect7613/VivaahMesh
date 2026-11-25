@@ -78,8 +78,8 @@ async function resolve(identity: string, traits: Record<string, string | boolean
         features[name] = { enabled: flags.isFeatureEnabled(name), value: v == null ? null : String(v) };
       }
       source = "flagsmith";
-    } catch (e) {
-      console.error("flagsmith unavailable, using safe defaults", e);
+    } catch {
+      console.error("flagsmith unavailable, using safe defaults");
     }
   }
   for (const [name, d] of Object.entries(SAFE_DEFAULTS)) features[name] ??= d;
@@ -130,7 +130,7 @@ export async function killSwitch(name: "outbound_dialing_enabled" | "result_proc
     return fallback;
   } catch (e) {
     if (requireRemote) throw e;
-    console.error("flagsmith unavailable, using safe default for", name, e);
+    console.error("flagsmith unavailable, using safe default for", name);
     return fallback;
   }
 }

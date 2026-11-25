@@ -1,4 +1,6 @@
+import { jsonObject } from "@/lib/server/request-body";
 import { authed } from "@/lib/server/route";
+import { uuidField } from "@/lib/server/wedding-input";
 import { planView, seedDemoPlan } from "@/lib/server/plan";
 
 export const GET = authed(async (req, viewer) => {
@@ -8,7 +10,7 @@ export const GET = authed(async (req, viewer) => {
 
 /** Couple-only: seed the labelled demo Sangeet into this wedding. */
 export const POST = authed(async (req, viewer) => {
-  const body = (await req.json().catch(() => ({}))) as { weddingId?: string };
-  const id = await seedDemoPlan(viewer.id, body.weddingId);
+  const body = await jsonObject(req);
+  const id = await seedDemoPlan(viewer.id, uuidField(body, "weddingId", true));
   return { plan: await planView(viewer.id, id) };
 });

@@ -13,6 +13,7 @@ const text = {
     dinner: "Dinner start", dance: "Dance duration in minutes", note: "Reviewed note", original: "Original note", publish: "Share with both families",
     prepared: "Use prepared Marathi example", seed: "Prepared example", dictate: "Dictated and reviewed",
     record: "Record a Marathi note", stop: "Finish recording", upload: "Upload a Marathi audio clip",
+    recordingNotice: "Sarvam transcribes your audio. Both families can read the note you publish.",
     review: "Check the transcript and dinner time before sharing.", error: "Could not complete that action. Try again.",
     changed: "Another person updated this requirement. Reopen the form to see their change.",
     edit: "Edit your household’s requirement", play: "Listen to the approved recap", busy: "Working…", cancel: "Cancel",
@@ -22,6 +23,7 @@ const text = {
     dinner: "जेवण सुरू होण्याची वेळ", dance: "नृत्याचा कालावधी (मिनिटे)", note: "तपासलेली नोंद", original: "मूळ नोंद", publish: "दोन्ही कुटुंबांशी शेअर करा",
     prepared: "तयार मराठी उदाहरण वापरा", seed: "तयार उदाहरण", dictate: "बोलून लिहिलेली व तपासलेली नोंद",
     record: "मराठी नोंद रेकॉर्ड करा", stop: "रेकॉर्डिंग थांबवा", upload: "मराठी ऑडिओ अपलोड करा",
+    recordingNotice: "Sarvam तुमच्या ऑडिओचे रूपांतर मजकुरात करते. तुम्ही शेअर केलेली नोंद दोन्ही कुटुंबांना वाचता येते.",
     review: "शेअर करण्याआधी मजकूर आणि जेवणाची वेळ तपासा.", error: "हे काम पूर्ण झाले नाही. पुन्हा प्रयत्न करा.",
     changed: "दुसऱ्या व्यक्तीने सूचना बदलली आहे. नवीन माहिती पाहण्यासाठी फॉर्म पुन्हा उघडा.",
     edit: "आपल्या कुटुंबाची सूचना बदला", play: "मंजूर वेळापत्रक ऐका", busy: "प्रक्रिया सुरू आहे…", cancel: "रद्द करा",
@@ -31,6 +33,7 @@ const text = {
     dinner: "रात के खाने का समय", dance: "नृत्य की अवधि (मिनट)", note: "जाँचा हुआ नोट", original: "मूल नोट", publish: "दोनों परिवारों से साझा करें",
     prepared: "तैयार मराठी उदाहरण इस्तेमाल करें", seed: "तैयार उदाहरण", dictate: "बोलकर लिखा और जाँचा गया नोट",
     record: "मराठी नोट रिकॉर्ड करें", stop: "रिकॉर्डिंग रोकें", upload: "मराठी ऑडियो अपलोड करें",
+    recordingNotice: "Sarvam आपके ऑडियो को टेक्स्ट में बदलता है। दोनों परिवार आपका साझा किया हुआ नोट पढ़ सकते हैं।",
     review: "साझा करने से पहले नोट और खाने का समय जाँचें।", error: "यह काम पूरा नहीं हुआ। फिर से कोशिश करें।",
     changed: "किसी और ने यह आवश्यकता अपडेट की है। बदलाव देखने के लिए फ़ॉर्म फिर खोलें।",
     edit: "अपने परिवार की आवश्यकता बदलें", play: "मंज़ूर समय-सारणी सुनें", busy: "प्रक्रिया चल रही है…", cancel: "रद्द करें",
@@ -218,11 +221,12 @@ export function FamilyVoice({ weddingId, lang }: { weddingId: string; lang: Lang
         <form className="flex flex-col gap-3" onSubmit={publish}>
           {editable === "dinner_start" ? (
             <div className="flex flex-col gap-2">
-              <button type="button" className={buttonClass} disabled={busy && !recording} onClick={() => { void record(); }}>
+              <p id="family-recording-notice" className="text-sm text-muted">{t.recordingNotice}</p>
+              <button type="button" className={buttonClass} disabled={busy && !recording} aria-describedby="family-recording-notice" onClick={() => { void record(); }}>
                 {recording ? t.stop : t.record}
               </button>
               <label className="flex flex-col gap-1 text-sm font-medium">{t.upload}
-                <input className={inputClass} type="file" accept="audio/*,.webm" disabled={busy} onChange={(event) => {
+                <input className={inputClass} type="file" accept="audio/*,.webm" disabled={busy} aria-describedby="family-recording-notice" onChange={(event) => {
                   const file = event.currentTarget.files?.[0];
                   event.currentTarget.value = "";
                   if (file) void upload(file);
@@ -239,11 +243,11 @@ export function FamilyVoice({ weddingId, lang }: { weddingId: string; lang: Lang
             {editable === "dinner_start" ? t.dinner : t.dance}
             <input className={inputClass} type={editable === "dinner_start" ? "time" : "number"} min={editable === "dance_duration" ? 1 : undefined}
               max={editable === "dance_duration" ? 180 : undefined} step={editable === "dance_duration" ? 1 : 60} required
-              value={draft.value} onChange={(event) => setDraft({ ...draft, value: event.currentTarget.value })} />
+              value={draft.value} onChange={(event) => setDraft({ ...draft, value: event.currentTarget.value, provenance: draft.provenance && "draftToken" in draft.provenance ? draft.provenance : undefined })} />
           </label>
           <label className="flex flex-col gap-1 text-sm font-medium">{t.note}
             <textarea className={inputClass} maxLength={1000} rows={3} lang={editable === "dinner_start" ? "mr" : lang}
-              value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.currentTarget.value })} />
+              value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.currentTarget.value, provenance: undefined })} />
           </label>
           <button type="submit" className={primaryClass} disabled={busy || value === null}>{t.publish}</button>
           <button type="button" className={buttonClass} disabled={busy} onClick={() => { setDraft(null); setError(""); }}>{t.cancel}</button>

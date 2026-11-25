@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { base, type BaseLang, type Lang } from "@/lib/i18n";
-import { api, haptic } from "@/lib/client/telegram";
+import { base, botCopy, type BaseLang, type Lang } from "@/lib/i18n";
+import { api, ApiError, haptic } from "@/lib/client/telegram";
 import { useWeddingLive } from "@/lib/client/live";
 
 interface Run {
@@ -11,10 +11,10 @@ interface Run {
   status: "done" | "running";
   text: string | null;
   at: string;
-  messages: string[];
+  messages: number;
 }
 
-const COPY: Record<BaseLang, { checkNow: string; checking: string; empty: string; trig: Record<Run["trigger"], string>; told: (n: number) => string; powered: string; ask: string; askPlaceholder: string; thinking: string; busy: string; searched: string; saved: string; group: string; groupHint: string }> = {
+const COPY: Record<BaseLang, { checkNow: string; checking: string; empty: string; trig: Record<Run["trigger"], string>; told: (n: number) => string; powered: string; ask: string; askPlaceholder: string; searchHint: string; thinking: string; busy: string; searched: string; saved: string; group: string; groupHint: string }> = {
   en: {
     checkNow: "Check now",
     checking: "Checking…",
@@ -23,8 +23,9 @@ const COPY: Record<BaseLang, { checkNow: string; checking: string; empty: string
     told: (n) => (n === 1 ? "messaged 1 group" : `messaged ${n} groups`),
     powered: "GLM-5.3 on Sarvam · runs all the time",
     ask: "Ask",
-    askPlaceholder: "Ask anything: “Mehendi artists in Pune under ₹10k?”",
-    thinking: "Thinking… (may search the web)",
+    askPlaceholder: "Ask about your wedding plan",
+    searchHint: "For public web search, type /search Mehendi artists in Pune. Use public terms only.",
+    thinking: "Thinking…",
     busy: "I'm in the middle of something. Ask again in a minute.",
     searched: "Searched the web",
     saved: "Saved to your family's notes",
@@ -39,8 +40,9 @@ const COPY: Record<BaseLang, { checkNow: string; checking: string; empty: string
     told: (n) => `${n} समूह को संदेश भेजा`,
     powered: "Sarvam पर GLM-5.3 · हमेशा चालू",
     ask: "पूछें",
-    askPlaceholder: "कुछ भी पूछें: “पुणे में ₹10 हज़ार तक मेहंदी आर्टिस्ट?”",
-    thinking: "सोच रहा हूँ… (वेब पर खोज सकता हूँ)",
+    askPlaceholder: "अपनी शादी की योजना के बारे में पूछें",
+    searchHint: "वेब पर खोजने के लिए /search पुणे में मेहंदी आर्टिस्ट लिखें। सिर्फ़ सार्वजनिक जानकारी लिखें।",
+    thinking: "सोच रहा हूँ…",
     busy: "अभी एक काम चल रहा है। एक मिनट बाद पूछें।",
     searched: "वेब पर खोजा",
     saved: "आपके परिवार के नोट्स में सहेजा",
@@ -55,8 +57,9 @@ const COPY: Record<BaseLang, { checkNow: string; checking: string; empty: string
     told: (n) => `${n} गटाला मेसेज केला`,
     powered: "Sarvam वर GLM-5.3 · सतत चालू",
     ask: "विचारा",
-    askPlaceholder: "काहीही विचारा: “पुण्यात ₹10 हजारांत मेहंदी आर्टिस्ट?”",
-    thinking: "विचार करतोय… (वेबवर शोधू शकतो)",
+    askPlaceholder: "तुमच्या लग्नाच्या योजनेबद्दल विचारा",
+    searchHint: "वेबवर शोधण्यासाठी /search पुण्यात मेहंदी आर्टिस्ट लिहा. फक्त सार्वजनिक माहिती लिहा.",
+    thinking: "विचार करतोय…",
     busy: "सध्या एक काम चालू आहे. एका मिनिटाने विचारा.",
     searched: "वेबवर शोधलं",
     saved: "तुमच्या कुटुंबाच्या नोट्समध्ये जतन केलं",
@@ -77,11 +80,18 @@ function ago(iso: string, lang: Lang) {
 }
 
 /** What the always-on agent noticed and did, so families can see who is following up. */
-export function AgentFeed({ weddingId, lang, groupLink }: { weddingId: string; lang: Lang; groupLink?: string | null }) {
+export function AgentFeed({ weddingId, realtimeTopic, lang, groupLink }: { weddingId: string; realtimeTopic: string | null; lang: Lang; groupLink?: string | null }) {
   const c = COPY[base(lang)];
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
   const [chat, setChat] = useState<{ q: string; a: string; searched?: string[]; saved?: number }[]>([]);
+  const [runs, setRuns] = useState<Run[] | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkLimited, setCheckLimited] = useState(false);
+
+  const load = useCallback(() => api<{ runs: Run[] }>(`/api/agent?wedding=${weddingId}`).then((r) => setRuns(r.runs)).catch(() => {}), [weddingId]);
+  useWeddingLive(realtimeTopic, load);
+
   async function ask() {
     const q = question.trim();
     if (!q || asking) return;
@@ -94,17 +104,13 @@ export function AgentFeed({ weddingId, lang, groupLink }: { weddingId: string; l
       haptic.success();
       load();
     } catch (e) {
-      setChat((x) => [...x, { q, a: (e as Error).message }]);
+      const message = e instanceof ApiError && e.status === 429 ? botCopy[base(lang)].agentRequestLimit : (e as Error).message;
+      setChat((x) => [...x, { q, a: message }]);
       haptic.error();
     } finally {
       setAsking(false);
     }
   }
-  const [runs, setRuns] = useState<Run[] | null>(null);
-  const [checking, setChecking] = useState(false);
-
-  const load = useCallback(() => api<{ runs: Run[] }>(`/api/agent?wedding=${weddingId}`).then((r) => setRuns(r.runs)).catch(() => {}), [weddingId]);
-  useWeddingLive(weddingId, load);
 
   useEffect(() => {
     const first = setTimeout(load, 0);
@@ -124,8 +130,16 @@ export function AgentFeed({ weddingId, lang, groupLink }: { weddingId: string; l
   async function checkNow() {
     haptic.tap();
     setChecking(true);
+    setCheckLimited(false);
     const before = runs?.[0]?.id;
-    await api("/api/agent", { body: { weddingId } }).catch(() => setChecking(false));
+    try {
+      await api("/api/agent", { body: { weddingId } });
+    } catch (e) {
+      setChecking(false);
+      setCheckLimited(e instanceof ApiError && e.status === 429);
+      haptic.error();
+      return;
+    }
     // Stop the spinner as soon as a new finished run shows up.
     const poll = setInterval(async () => {
       const r = await api<{ runs: Run[] }>(`/api/agent?wedding=${weddingId}`).catch(() => null);
@@ -152,6 +166,7 @@ export function AgentFeed({ weddingId, lang, groupLink }: { weddingId: string; l
           {checking ? c.checking : c.checkNow}
         </button>
       </div>
+      {checkLimited && <p role="status" className="px-4 pt-3 text-[13px] text-muted">{botCopy[base(lang)].agentRequestLimit}</p>}
       <div className="border-b border-line px-4 py-3">
         {chat.map((m, i) => (
           <div key={i} className="mb-3">
@@ -177,6 +192,7 @@ export function AgentFeed({ weddingId, lang, groupLink }: { weddingId: string; l
           className="flex gap-2"
         >
           <input
+            aria-describedby="agent-public-search"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             placeholder={c.askPlaceholder}
@@ -187,6 +203,7 @@ export function AgentFeed({ weddingId, lang, groupLink }: { weddingId: string; l
             {c.ask}
           </button>
         </form>
+        <p id="agent-public-search" className="mt-2 text-[12px] text-muted">{c.searchHint}</p>
       </div>
       {groupLink ? (
         <a href={groupLink} target="_blank" rel="noreferrer" className="pressable flex items-start gap-3 border-b border-line px-5 py-3.5">
@@ -209,7 +226,7 @@ export function AgentFeed({ weddingId, lang, groupLink }: { weddingId: string; l
               <p className="text-[15px] leading-snug">{r.status === "running" ? c.checking : r.text}</p>
               <p className="mt-1 text-[12px] text-muted">
                 {ago(r.at, lang)} · {c.trig[r.trigger]}
-                {r.messages.length ? ` · ${c.told(r.messages.length)}` : ""}
+                {r.messages ? ` · ${c.told(r.messages)}` : ""}
               </p>
             </li>
           ))}

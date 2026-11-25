@@ -1,4 +1,4 @@
-import crypto from "node:crypto";
+import { hasTelegramWebhookSecret } from "@/lib/server/telegram-auth";
 import { appUrl, tg } from "@/lib/server/telegram-bot";
 
 /**
@@ -7,9 +7,7 @@ import { appUrl, tg } from "@/lib/server/telegram-bot";
  * Registers the webhook, commands, menu button and description.
  */
 export async function POST(req: Request) {
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET ?? "";
-  const got = req.headers.get("x-setup-secret") ?? "";
-  if (!secret || got.length !== secret.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(secret))) {
+  if (!hasTelegramWebhookSecret(req, "x-setup-secret")) {
     return new Response("forbidden", { status: 403 });
   }
   if (!process.env.APP_URL?.startsWith("https://")) {
@@ -19,7 +17,7 @@ export async function POST(req: Request) {
   const results = await Promise.allSettled([
     tg("setWebhook", {
       url: appUrl("/api/telegram/webhook"),
-      secret_token: secret,
+      secret_token: process.env.TELEGRAM_WEBHOOK_SECRET,
       allowed_updates: ["message"],
       drop_pending_updates: true,
     }),
@@ -33,5 +31,7 @@ export async function POST(req: Request) {
     }),
     tg("setMyShortDescription", { short_description: "One wedding plan for two families 🌼" }),
   ]);
-  return Response.json(results.map((r) => (r.status === "fulfilled" ? "ok" : String(r.reason))));
+  return Response.json(results.map((r) => (r.status === "fulfilled" ? "ok" : "failed")), {
+    status: results.every((r) => r.status === "fulfilled") ? 200 : 502,
+  });
 }

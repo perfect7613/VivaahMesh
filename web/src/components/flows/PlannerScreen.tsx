@@ -10,12 +10,12 @@ type L = {
   next: string | null;
   open: Record<"sourcing" | "booking" | "guests" | "day_of" | "closeout", boolean>;
   flagSource: string;
-  tasks: { id: string; title: string; kind: string; status: string; owner: string | null; due_date: string | null; evidence: string | null; escalated: boolean; seeded: boolean; signedOffBy: string | null }[];
+  tasks: { id: string; title: string; kind: string; status: string; owner: string | null; due_date: string | null; canEdit: boolean; escalated: boolean; seeded: boolean; signedOffBy: string | null }[];
   vendors: { id: string; name: string; category: string; origin: string; functions: string[]; status: string; seeded: boolean; quote_inr: number | null; planned_inr: number | null; committed_inr: number | null; invoice_inr: number | null; paid_inr: number | null; authorizedBy: string | null; accepted_at: string | null; paid_at: string | null; viewUrl: string | null }[];
   spend: { planned: number; committed: number; actual: number; discrepancies: { vendorId: string; name: string; committed: number; invoice: number; diff: number }[] } | null;
   openDeliverables: number;
   functions: { id: string; title: string; kind: string }[];
-  guests: { id: string; name: string; party: number; rsvpUrl: string }[];
+  guests: { id: string; name: string; party: number; rsvpUrl: string | null; canManageLink: boolean }[];
   rsvp: Record<string, { yes: number; no: number; people: number; veg: number; nonVeg: number }>;
   registry: { id: string; title: string; price_inr: number | null; reserved: boolean; reservedBy: string | null }[];
 };
@@ -37,10 +37,19 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
   useBackButton(onClose);
 
   const load = useCallback(() => api<{ lifecycle: L }>(`/api/lifecycle?wedding=${W}`).then((r) => setL(r.lifecycle)).catch((e) => setErr(e.message)), [W]);
-  useWeddingLive(W, load);
+  useWeddingLive(view.realtimeTopic, load);
   useEffect(() => {
-    const t = setTimeout(load, 0);
-    return () => clearTimeout(t);
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    const initial = setTimeout(load, 0);
+    const poll = setInterval(refreshVisible, 5000);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(poll);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
   }, [load]);
 
   async function act(action: Record<string, unknown>) {
@@ -91,7 +100,7 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
         </ol>
         <p className="mt-2 text-[12px] text-muted">Screens unlock with the wedding stage · {l.flagSource === "flagsmith" ? "Flagsmith" : "safe defaults"}</p>
         {l.me.isCouple && l.next ? (
-          <button disabled={busy} onClick={() => act({ type: "advance_stage" })} className={`${btn} mt-2 w-full border border-marigold/60`}>Move to {STAGE_LABEL[l.next]} →</button>
+          <button disabled={busy} onClick={() => act({ type: "advance_stage", expectedStage: l.stage })} className={`${btn} mt-2 w-full border border-marigold/60`}>Move to {STAGE_LABEL[l.next]} →</button>
         ) : null}
 
         <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-card p-1">
@@ -108,7 +117,7 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
               {l.tasks.map((t) => (
                 <li key={t.id} className={`rounded-2xl border px-4 py-3 ${t.escalated && t.status !== "done" ? "border-sindoor/50" : "border-line"} bg-card`}>
                   <div className="flex items-start gap-3">
-                    <button aria-label="Toggle done" disabled={busy} onClick={() => act({ type: "task_status", taskId: t.id, status: t.status === "done" ? "open" : "done" })} className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border ${t.status === "done" ? "border-mehendi bg-mehendi text-white" : "border-line"}`}>{t.status === "done" ? "✓" : ""}</button>
+                    <button aria-label="Toggle done" disabled={busy || !t.canEdit} onClick={() => act({ type: "task_status", taskId: t.id, status: t.status === "done" ? "open" : "done" })} className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border ${t.status === "done" ? "border-mehendi bg-mehendi text-white" : "border-line"}`}>{t.status === "done" ? "✓" : ""}</button>
                     <div className="min-w-0 flex-1">
                       <p className={`text-[15px] ${t.status === "done" ? "text-muted line-through" : ""}`}>{t.kind === "incident" ? "⚠️ " : t.kind === "replacement" ? "🔁 " : t.kind === "deliverable" ? "📦 " : ""}{t.title}{t.seeded ? " (sample)" : ""}</p>
                       <p className="text-[12px] text-muted">{[t.owner && `Owner: ${t.owner}`, t.due_date && `due ${t.due_date}`, t.signedOffBy && `signed off by ${t.signedOffBy}`].filter(Boolean).join(" · ")}</p>
@@ -144,16 +153,19 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
               {l.vendors.map((v) => (
                 <li key={v.id} className={`rounded-2xl border border-line bg-card px-4 py-3 ${v.status === "cancelled" ? "opacity-60" : ""}`}>
                   <p className="font-medium">{v.name} <span className="text-[12px] font-normal text-muted">· {v.category.replace("_", " ")} · {v.origin === "family" ? "family’s own" : "sourced"}{v.seeded ? " · sample" : ""}</span></p>
-                  <p className="text-[12px] text-muted">{v.functions.join(", ") || "all functions"}{l.me.isCouple ? ` · quote ${inr(v.quote_inr)} · paid ${inr(v.paid_inr)}` : ""}</p>
+                  <p className="text-[12px] text-muted">{v.functions.join(", ") || "No functions assigned"}{l.me.isCouple ? ` · quote ${inr(v.quote_inr)} · paid ${inr(v.paid_inr)}` : ""}</p>
                   <p className="mt-1 text-[12px]">
                     {v.status === "cancelled" ? "❌ cancelled" : [v.authorizedBy ? `✓ authorized by ${v.authorizedBy}` : "○ not authorized", v.accepted_at ? "✓ vendor accepted" : "○ vendor hasn’t accepted", v.paid_at ? "✓ paid" : "○ unpaid"].join(" · ")}
                   </p>
                   {v.status !== "cancelled" ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {l.me.decider && v.status === "shortlisted" ? <button disabled={busy} onClick={() => act({ type: "authorize_vendor", vendorId: v.id })} className={`${btn} bg-mehendi text-white`}>Authorize booking</button> : null}
-                      {v.status === "authorized" ? <button disabled={busy} onClick={() => act({ type: "vendor_accepted", vendorId: v.id })} className={`${btn} border border-line`}>Vendor accepted</button> : null}
+                      {l.me.decider && v.status === "authorized" ? <button disabled={busy} onClick={() => act({ type: "vendor_accepted", vendorId: v.id })} className={`${btn} border border-line`}>Vendor accepted</button> : null}
                       {l.me.isCouple && v.status !== "shortlisted" ? <button disabled={busy} onClick={() => { const inv = window.prompt("Invoice amount (₹)", String(v.invoice_inr ?? v.committed_inr ?? "")); const paid = window.prompt("Paid so far (₹)", String(v.paid_inr ?? 0)); if (inv !== null || paid !== null) act({ type: "vendor_money", vendorId: v.id, invoiceInr: inv || undefined, paidInr: paid || undefined }); }} className={`${btn} border border-line`}>Invoice / payment</button> : null}
                       {v.viewUrl ? <button onClick={() => copy(v.viewUrl!)} className={`${btn} border border-line`}>Copy run-sheet link</button> : null}
+                      {l.me.decider ? <button disabled={busy} onClick={() => {
+                        if (!v.viewUrl || window.confirm("Replace the run-sheet link? The current link will stop working.")) void act({ type: "rotate_vendor_link", vendorId: v.id });
+                      }} className={`${btn} border border-line`}>{v.viewUrl ? "Replace link" : "Renew link"}</button> : null}
                       {l.me.decider ? <button disabled={busy} onClick={() => { const why = window.prompt(`Mark ${v.name} as cancelled? Reason:`); if (why !== null) act({ type: "cancel_vendor", vendorId: v.id, reason: why }); }} className={`${btn} border border-sindoor/50 text-sindoor`}>Cancelled</button> : null}
                     </div>
                   ) : null}
@@ -189,7 +201,10 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
             <h3 className="mt-5 font-medium">Guests ({l.guests.length})</h3>
             <ul className="mt-2 flex flex-col gap-1.5">
               {l.guests.map((g) => (
-                <li key={g.id} className="flex items-center gap-2 rounded-xl border border-line bg-card px-3 py-2 text-[15px]"><span className="flex-1">{g.name} <span className="text-muted">×{g.party}</span></span><button onClick={() => copy(g.rsvpUrl)} className={`${btn} border border-line`}>Copy RSVP link</button></li>
+                <li key={g.id} className="flex items-center gap-2 rounded-xl border border-line bg-card px-3 py-2 text-[15px]"><span className="flex-1">{g.name} <span className="text-muted">×{g.party}</span></span>{g.rsvpUrl ? <button onClick={() => copy(g.rsvpUrl!)} className={`${btn} border border-line`}>Copy RSVP link</button> : null}
+                {g.canManageLink ? <button disabled={busy} onClick={() => {
+                  if (!g.rsvpUrl || window.confirm("Replace the RSVP link? The current link will stop working.")) void act({ type: "rotate_guest_link", guestId: g.id });
+                }} className={`${btn} border border-line`}>{g.rsvpUrl ? "Replace link" : "Renew link"}</button> : null}</li>
               ))}
             </ul>
             {l.open.guests ? (

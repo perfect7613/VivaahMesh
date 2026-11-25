@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "./supabase";
 import { chat, translate } from "./sarvam";
-import { LANGS, isBase, sarvamCode, serializeEnglish, type BaseLang } from "@/lib/i18n";
+import { LANGS, isBase, sarvamCode, serializeEnglish, validateUiStrings, type BaseLang } from "@/lib/i18n";
 
 /**
  * Every language Sarvam supports. Marathi, Hindi and English are hand-written; any other language
@@ -19,10 +19,11 @@ export async function localized(texts: Record<BaseLang, string>, lang: string): 
   if (hit) return hit;
   try {
     const out = await translate(texts.en, sarvamCode(lang));
+    if (memo.size >= 256) memo.delete(memo.keys().next().value!);
     memo.set(k, out);
     return out;
-  } catch (e) {
-    console.error("translate failed", lang, e);
+  } catch {
+    console.error("translate failed", lang);
     return texts.en;
   }
 }
@@ -33,8 +34,9 @@ const inflight = new Map<string, Promise<Serialized>>();
 /** The Mini App's strings in `lang`, translated once by GLM and stored in ui_strings. */
 export async function uiStrings(lang: string): Promise<Serialized | null> {
   if (isBase(lang) || !LANGS.some((l) => l.code === lang)) return null;
-  const { data } = await db().from("ui_strings").select("data").eq("lang", lang).maybeSingle();
-  if (data?.data) return data.data as Serialized;
+  const { data, error } = await db().from("ui_strings").select("data").eq("lang", lang).maybeSingle();
+  if (error) throw new Error("ui_strings_read_failed");
+  if (data?.data) return validateUiStrings(data.data);
   if (!inflight.has(lang)) inflight.set(lang, buildStrings(lang).finally(() => inflight.delete(lang)));
   return inflight.get(lang)!;
 }
@@ -67,24 +69,13 @@ async function buildStrings(lang: string): Promise<Serialized> {
       });
       const text = (message.content ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "");
       try {
-        return JSON.parse(text) as Serialized;
+        return validateUiStrings(JSON.parse(text), slice);
       } catch {
         return {} as Serialized;
       }
     }),
   );
-  const merged = Object.assign({}, ...parts) as Serialized;
-  // Only keep entries that kept their shape (and every placeholder) so a bad chunk falls back to English.
-  const clean: Serialized = {};
-  for (const k of keys) {
-    const src = source[k];
-    const t = merged[k];
-    if (typeof src === "string" && typeof t === "string") clean[k] = t;
-    else if (src && typeof src === "object" && "$fn" in src && t && typeof t === "object" && "$fn" in t) {
-      const need = String(src.$fn).match(/⟦\d⟧/g) ?? [];
-      if (need.every((n) => String(t.$fn).includes(n))) clean[k] = t;
-    } else if (src && typeof src === "object" && t && typeof t === "object" && !("$fn" in t)) clean[k] = t;
-  }
+  const clean: Serialized = Object.assign({}, ...parts);
   if (Object.keys(clean).length > keys.length * 0.6) {
     await db().from("ui_strings").upsert({ lang, data: clean, model: "glm5.3-flash" });
   }

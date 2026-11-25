@@ -3,7 +3,9 @@
 // Creates a test wedding with fake Telegram users; delete it afterwards (the script prints its id).
 import crypto from "node:crypto";
 
-const BASE = process.argv[2];
+import { rehearsalOrigin } from "./rehearsal-origin.mjs";
+
+const BASE = rehearsalOrigin(process.argv[2]);
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const secret = crypto.createHmac("sha256", "WebAppData").update(token).digest();
 
@@ -15,6 +17,7 @@ function initData(user) {
 }
 async function call(user, path, body) {
   const res = await fetch(BASE + path, {
+    redirect: "error",
     method: body ? "POST" : "GET",
     headers: { "content-type": "application/json", authorization: `tma ${initData(user)}` },
     body: body ? JSON.stringify(body) : undefined,
@@ -30,8 +33,8 @@ const stranger = { id: 900000004, first_name: "Stranger" };
 
 // Unauthenticated and forged requests are refused
 ok((await fetch(BASE + "/api/me")).status === 401, "no initData → 401");
-ok((await fetch(BASE + "/api/me", { headers: { authorization: "tma " + initData(couple).replace(/hash=\w+/, "hash=" + "0".repeat(64)) } })).status === 401, "bad hash → 401");
-ok((await fetch(BASE + "/api/me", { headers: { "x-dev-user": "1:Dev" } })).status === 401, "dev bypass disabled in production");
+ok((await fetch(BASE + "/api/me", { redirect: "error", headers: { authorization: "tma " + initData(couple).replace(/hash=\w+/, "hash=" + "0".repeat(64)) } })).status === 401, "bad hash → 401");
+ok((await fetch(BASE + "/api/me", { redirect: "error", headers: { "x-dev-user": "1:Dev" } })).status === 401, "dev bypass disabled in production");
 
 // Couple creates the wedding
 let r = await call(couple, "/api/me");

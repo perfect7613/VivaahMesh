@@ -19,8 +19,13 @@ async function handle(req: Request) {
     ok(process.env.CRON_SECRET ? `Bearer ${process.env.CRON_SECRET}` : undefined, req.headers.get("authorization"));
   if (!authorized) return Response.json({ error: "forbidden" }, { status: 403 });
   const started = Date.now();
-  const results = await heartbeat();
-  return Response.json({ ms: Date.now() - started, results });
+  try {
+    const results = await heartbeat();
+    return Response.json({ ms: Date.now() - started, results });
+  } catch {
+    console.error("Agent heartbeat failed");
+    return Response.json({ error: "heartbeat_unavailable" }, { status: 503 });
+  }
 }
 
 export const GET = handle;

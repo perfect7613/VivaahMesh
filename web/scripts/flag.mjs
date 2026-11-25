@@ -10,9 +10,9 @@ const KEY = process.env.FLAGSMITH_ADMIN_API_KEY;
 if (!KEY) throw new Error("FLAGSMITH_ADMIN_API_KEY missing");
 const H = { Authorization: `Api-Key ${KEY}`, "content-type": "application/json" };
 const api = async (method, path, body) => {
-  const r = await fetch(API + path, { method, headers: H, body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(API + path, { method, redirect: "error", signal: AbortSignal.timeout(15000), headers: H, body: body ? JSON.stringify(body) : undefined });
   const t = await r.text();
-  if (!r.ok) throw new Error(`${method} ${path} → ${r.status} ${t.slice(0, 300)}`);
+  if (!r.ok) throw new Error(`Flagsmith rejected ${method} (HTTP ${r.status})`);
   return t ? JSON.parse(t) : {};
 };
 const list = (x) => (Array.isArray(x) ? x : x.results ?? []);
