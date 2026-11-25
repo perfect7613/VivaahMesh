@@ -68,13 +68,14 @@ export class ApiError extends Error {
 
 export async function api<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   const wa = getWebApp();
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const form = init?.body instanceof FormData ? init.body : null;
+  const headers: Record<string, string> = form ? {} : { "content-type": "application/json" };
   if (wa) headers.authorization = `tma ${wa.initData}`;
   else headers["x-dev-user"] = devUser();
   const res = await fetch(path, {
     method: init?.method ?? (init?.body ? "POST" : "GET"),
     headers,
-    body: init?.body ? JSON.stringify(init.body) : undefined,
+    body: form ?? (init?.body ? JSON.stringify(init.body) : undefined),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError((json as { error?: string }).error ?? `HTTP ${res.status}`, res.status, json);

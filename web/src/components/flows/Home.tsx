@@ -7,6 +7,7 @@ import { TelegramIcon, WhatsAppIcon } from "@/components/landing/BrandIcons";
 import { InvitationCard, formatDate } from "./InvitationCard";
 import { FunctionSheet } from "./FunctionSheet";
 import { PlanCard } from "./PlanCard";
+import { FamilyVoice } from "./FamilyVoice";
 import { CallScreen } from "./CallScreen";
 import { AgentFeed } from "./AgentFeed";
 import { inviteLink, shareInvite } from "./shared";
@@ -204,6 +205,10 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
           <Section title={t.planCheck} tone="sindoor">
             <PlanCard view={view} lang={lang} onCallVenue={() => setCalling(true)} />
           </Section>
+
+          {view.functions.some((fn) => fn.kind === "sangeet") ? (
+            <FamilyVoice key={`family-voice:${view.wedding.id}`} weddingId={view.wedding.id} lang={lang} />
+          ) : null}
 
           {on.home_team_section ? (
             <Section title={t.teamHandling}>
