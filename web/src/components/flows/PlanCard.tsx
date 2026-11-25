@@ -9,6 +9,7 @@ import type { View } from "./types";
 
 /** Client mirror of the server's PlanView (src/lib/server/plan.ts). */
 interface Plan {
+  policy?: { version: string; strategy: string; source: string };
   snapshotRevision: number;
   activities: Activity[];
   facts: { id: string; kind: FactKind; functionKind: string; value: number | null; status: string }[];
@@ -205,7 +206,11 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
           </ul>
         </div>
       ) : null}
-      <p className="text-[12px] text-muted">{t.planPolicy(result.policyVersion)}</p>
+      <p className="text-[12px] text-muted">
+        {t.planPolicy(result.policyVersion)}
+        {plan.policy ? ` · ${t.strategies[plan.policy.strategy] ?? plan.policy.strategy}` : ""}
+        {plan.policy?.source === "safe_defaults" ? ` · ${t.safeDefaults}` : plan.policy?.source === "flagsmith" ? " · Flagsmith" : ""}
+      </p>
     </div>
   );
 }
