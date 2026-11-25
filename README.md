@@ -1,11 +1,31 @@
-# VivaahMesh
+<p align="center">
+  <img src="docs/images/banner.png" alt="MahiWay (VivaahMesh): two families, one wedding plan" width="100%">
+</p>
 
-**One wedding plan for two families, in every family's own language, with an always-on planning agent that listens to the family groups, calls the venue, and never commits anything without the right person.**
+<h1 align="center">VivaahMesh</h1>
 
-Built at **FestiveHacks × WeAreDevelopers Conference India** (25 Nov 2026) with **Sarvam AI**, **Flagsmith** and **NudgeBee**.
+<p align="center">
+  <b>One wedding plan for two families, in every family's own language.</b><br>
+  An always-on planning agent listens to the family groups, calls the venue, and never commits anything without the right person.<br>
+  On the web it goes by <b>MahiWay</b>.
+</p>
 
-- Live: https://vivaahmesh.vercel.app · Telegram: `@vivaah_bot`
-- PRD: [#1](https://github.com/perfect7613/VivaahMesh/issues/1), slices in #2 onward · Design principles: [`DESIGN.md`](./DESIGN.md)
+<p align="center">
+  <a href="https://vivaahmesh.vercel.app">Live site</a> ·
+  <a href="https://t.me/vivaah_bot">Telegram @vivaah_bot</a> ·
+  <a href="https://github.com/perfect7613/VivaahMesh/issues/1">PRD</a> ·
+  <a href="./DESIGN.md">Design principles</a> ·
+  <a href="docs/TESTING.md">How to test</a>
+</p>
+
+<p align="center">
+  Built at <b>FestiveHacks × WeAreDevelopers Conference India</b> (25 Nov 2026) with
+  <b>Sarvam AI</b>, <b>Flagsmith</b> and <b>NudgeBee</b>.
+</p>
+
+<p align="center">
+  <img src="docs/images/landing.jpg" alt="MahiWay landing page" width="90%">
+</p>
 
 ## Why not just a WhatsApp group?
 
@@ -38,6 +58,130 @@ VivaahMesh keeps the groups and adds what they can't do:
 - A pure, deterministic **wedding compiler** checks activities against confirmed facts (music cutoff, photographer coverage, makeup readiness…) and ranks options. Typed vendor terms stay *conditional* until the vendor confirms them.
 - **Revision-bound decisions**: each household responds to an exact plan revision, and the couple approves one. Late evidence creates a new revision, so a tap on an outdated screen changes nothing.
 - **Venue call** (Sarvam Samvaad outbound): a parent authorizes it and the agent asks the venue for the music cutoff. Corrections made mid-call are kept, and the last answer wins. There is also a browser voice fallback with per-call consent, and a makeup-artist enquiry by link. Until a Sarvam phone number is connected, **rehearsal mode** runs a simulated venue through the same pipeline, labelled "Rehearsal" everywhere.
+
+
+**The planner** (after the plan is approved)
+- **Owned tasks** with due dates. Deliverables like the wedding film stay open after the wedding until they arrive, and the couple signs off at closeout.
+- **Vendors**: the family's own vendors sit beside sourced ones. Authorizing a booking, the vendor accepting, and paying are three separate steps. Only the couple, or a parent the couple has granted access, can authorize.
+- **Spend**: planned, committed and actual, with a warning and an owned task when an invoice differs from the approved amount. Only the couple sees money.
+- **Guests**: RSVPs per function with meal counts on a guest link (no Telegram needed), and a gift registry where two guests can't reserve the same gift.
+- **Vendor run sheet**: each vendor gets a link showing only their functions and times from the approved plan.
+- Screens unlock stage by stage through Flagsmith, and other phones refresh within about two seconds of any change.
+
+
+## Screenshots
+
+| Talk to the bot | Who asked for what | Always-on agent | Planner |
+|---|---|---|---|
+| <img src="docs/images/telegram-chat.jpg" width="260" alt="A family note sent to the bot and its reply"> | <img src="docs/images/miniapp-plan.jpg" width="200" alt="Plan check with every request credited to its author"> | <img src="docs/images/miniapp-agent.jpg" width="200" alt="Agent card: GLM-5.3 on Sarvam, ask box and recent runs"> | <img src="docs/images/miniapp-planner.jpg" width="200" alt="Planner entry: tasks, vendors, spend, guests, registry"> |
+
+| The family group vs the plan | Flagsmith flags (Production) | NudgeBee recovery workflow |
+|---|---|---|
+| <img src="docs/images/group-vs-plan.jpg" width="320" alt="Family group messages next to the plan check MahiWay derives"> | <img src="docs/images/flagsmith-flags.jpg" width="320" alt="Flagsmith feature list for the project"> | <img src="docs/images/nudgebee-workflow.jpg" width="320" alt="NudgeBee workflow: triggers, check_state, approve_recovery, recover"> |
+
+### Worked example: the Sangeet
+
+<img src="docs/images/example-timeline.png" alt="Timeline: dinner 8:30, dance moved to 9:20 to fit the 10:00 video coverage, venue cutoff 10:30" width="100%">
+
+Aai needs dinner at 8:30. The cousins' dance runs 9:45–10:05, five minutes past the videographer's 10:00. Nobody knows when the hall stops the music. VivaahMesh flags the overrun, asks the venue (10:30), and offers "move the dance to 9:20–9:40": no extra cost, dinner unchanged, all 20 minutes kept. Each household responds and the couple approves that exact revision.
+
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph Families
+    TG[Telegram chat<br/>text and voice notes]
+    GRP[Family groups]
+    MA[Mini App / PWA]
+    GUEST[Guest RSVP page]
+    VEND[Vendor run sheet]
+  end
+  subgraph App["Next.js on Vercel"]
+    API[API routes<br/>initData / session auth]
+    AGENT[Always-on agent<br/>tools + privacy rules]
+    COMP[Deterministic<br/>wedding compiler]
+    LIFE[Planner: tasks, vendors,<br/>spend, guests, registry]
+  end
+  subgraph Sarvam
+    GLM[GLM-5.3<br/>Token Factory]
+    STT[Saaras STT]
+    TR[Translate]
+    SAM[Samvaad voice agent]
+  end
+  DB[(Supabase Postgres<br/>RLS, atomic RPCs)]
+  FS[Flagsmith<br/>rules, kill switches, stages]
+  NB[NudgeBee<br/>events + approvals]
+  FC[Firecrawl search]
+
+  TG & GRP --> API
+  MA --> API
+  GUEST & VEND --> API
+  API --> AGENT --> GLM
+  AGENT --> FC
+  API --> STT
+  API --> TR
+  API --> COMP
+  API --> LIFE
+  API <--> DB
+  API --> FS
+  COMP --> FS
+  API --> SAM -->|webhook: evidence| API
+  API -->|stuck result| NB -->|approved recovery| API
+  DB -.realtime ping.-> MA
+```
+
+### From a wish to an approved plan
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Aai as Aai (bride's family)
+  participant Bot as Bot / Mini App
+  participant C as Compiler
+  participant V as Venue (Samvaad call)
+  participant Both as Both households
+  participant Couple
+  Aai->>Bot: "आजीसाठी जेवण ८:३० लाच हवं" (voice note)
+  Bot->>Bot: Saaras transcribes, saved as Aai's wish
+  Bot->>C: compile Sangeet against confirmed facts
+  C-->>Bot: dance overruns video by 5 min, music cutoff unknown
+  Bot->>V: one question (after a family member consents)
+  V-->>Bot: "make it 10:30 for you" → stored as evidence
+  Bot->>C: recompile → new revision with ranked options
+  Bot->>Both: options, each naming whose wish it protects
+  Both-->>Bot: respond to revision N
+  Couple-->>Bot: approve revision N (stale screens are rejected)
+  Bot-->>Both: approved plan, live on every phone
+```
+
+### Recovery when call results get stuck
+
+```mermaid
+flowchart LR
+  A[Call result held<br/>result_processing_paused] --> B[App reports event<br/>vivaahmesh_call_result_stuck]
+  B --> C[NudgeBee workflow<br/>vivaahmesh-call-result-recovery]
+  C --> D[check_state<br/>dry run]
+  D --> E{approve_recovery<br/>a person decides}
+  E -- approved --> F[recover:<br/>flip the Flagsmith pause off,<br/>replay pending results]
+  E -- rejected --> G[results stay held]
+  F --> H[New plan revision<br/>for both households]
+```
+
+### Wedding stages (Flagsmith-gated)
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  brief --> sourcing: couple advances
+  sourcing --> booking
+  booking --> guests
+  guests --> day_of
+  day_of --> closeout
+  note right of sourcing: vendors and quotes unlock
+  note right of booking: authorize, vendor accepts, pay
+  note right of guests: RSVPs and registry
+  note right of closeout: invoices vs approved, sign-off
+```
 
 ## Sponsors
 
@@ -96,7 +240,7 @@ Prerequisites: Node 20.9+, the Supabase CLI, the Vercel CLI, and a Telegram bot 
 git clone https://github.com/perfect7613/VivaahMesh && cd VivaahMesh
 supabase link --project-ref <ref> && supabase db push      # schema + RPCs
 cd web && cp .env.example .env.local                        # fill in (table below)
-npm install && npm test                                     # 81 tests
+npm install && npm test                                     # 142 tests
 npm run dev                                                 # http://localhost:3000/tg (DEV_AUTH_BYPASS=1 for a browser)
 node scripts/flagsmith-setup.mjs                            # flags + segments
 vercel deploy --prod                                        # then set the same env on Vercel
