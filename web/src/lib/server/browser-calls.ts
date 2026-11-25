@@ -4,7 +4,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { db } from "./supabase";
 import { HttpError } from "./weddings";
 import { flagsForMember } from "./flags";
-import { browserCallDetails, requireAuthorizer } from "./calls";
+import { browserCallDetails, callWedding, canUseLiveCalls, requireAuthorizer } from "./calls";
 import { findSarvamBrowserInteraction, getSarvamBrowserConfig, getSarvamBrowserSession } from "./sarvam-browser";
 import { browserEvidence } from "./browser-evidence";
 import { appUrl } from "./telegram-bot";
@@ -32,6 +32,7 @@ export async function callResponse(action: () => Promise<unknown>) {
 export async function browserInvite(tgId: number, input: Record<string, unknown>) {
   if (input.authorize !== true || typeof input.weddingId !== "string") throw new HttpError(400, "authorization_required");
   const me = await requireAuthorizer(tgId, input.weddingId);
+  if (!canUseLiveCalls(await callWedding(me.wedding_id))) throw new HttpError(409, "browser_mode_disabled");
   const id = randomUUID();
   const flags = await flagsForMember(me);
   if (!flags.features.voice_channel.enabled || flags.features.voice_channel.value !== "browser") {
@@ -60,12 +61,13 @@ export async function browserInvite(tgId: number, input: Record<string, unknown>
 async function tokenCall(token: string) {
   if (!TOKEN.test(token)) throw new HttpError(404, "call_not_found");
   const { data, error } = await db().from("calls")
-    .select("id,status,result_received_at,processed_at,recipient_name,language,purpose,function_kind,caller_prompt,browser_consent_expires_at,browser_consented_at,browser_started_at,browser_reference,provider_attempt_id,fact:facts(status)")
+    .select("id,wedding_id,status,result_received_at,processed_at,recipient_name,language,purpose,function_kind,caller_prompt,browser_consent_expires_at,browser_consented_at,browser_started_at,browser_reference,provider_attempt_id,fact:facts(status)")
     .eq("browser_consent_hash", hash(token)).maybeSingle();
   if (error) throw error;
   if (!data) throw new HttpError(404, "call_not_found");
   const expiry = Date.parse(data.browser_consent_expires_at);
   if (!Number.isFinite(expiry) || expiry <= Date.now()) throw new HttpError(410, "consent_expired");
+  if (!canUseLiveCalls(await callWedding(data.wedding_id))) throw new HttpError(409, "browser_mode_disabled");
   return data;
 }
 
