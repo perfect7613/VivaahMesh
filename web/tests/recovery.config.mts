@@ -6,7 +6,7 @@ export default defineConfig({
     alias: { "@": fileURLToPath(new URL("../src", import.meta.url)) },
   },
   test: {
-    include: ["tests/recovery.integration.ts"],
+    include: ["tests/recovery.integration.ts", "tests/seed-wedding.integration.ts"],
     testTimeout: 20_000,
   },
 });
