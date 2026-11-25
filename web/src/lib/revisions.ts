@@ -1,7 +1,7 @@
 /**
  * Pure helpers for revision-bound approval (issue #5). No I/O and no `server-only`, so they can be
  * unit-tested. The atomic parts (recording a revision, responses, approval) live in SQL functions;
- * see supabase/migrations/20261125120000_approvals.sql.
+ * see supabase/migrations/20261125150000_revision_approvals.sql.
  */
 import type { Activity, CompilerPolicy, Fact, Minute, Proposal, Reason, Snapshot } from "@/lib/compiler/types";
 
@@ -50,7 +50,11 @@ function liveFactValues(facts: Fact[]) {
  */
 export function revisionFingerprint(snapshot: Snapshot, policy: CompilerPolicy, compilerVersion: number = COMPILER_VERSION): string {
   const activities = [...snapshot.activities].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return hash53(stableStringify({ activities, facts: liveFactValues(snapshot.facts), policy, compilerVersion }));
+  const withdrawnMakeupOptions = snapshot.withdrawnMakeupOptions?.map(stableStringify).sort();
+  return hash53(stableStringify({
+    activities, facts: liveFactValues(snapshot.facts), policy, compilerVersion,
+    ...(withdrawnMakeupOptions?.length ? { withdrawnMakeupOptions } : {}),
+  }));
 }
 
 /**

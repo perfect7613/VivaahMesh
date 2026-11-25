@@ -1,7 +1,9 @@
-// Creates the NudgeBee recovery automation (approval-gated). Reads NUDGEBEE_API_KEY and OPS_SECRET from env.
+// Legacy inline recovery only. For the Azure worker import ops/nudgebee/*.json (docs/nudgebee-workflows.md).
+// In NudgeBee, configure the shared Secret VIVAAHMESH_OPS_SECRET to match the web app.
 //   set -a; . ./.env.local; set +a; node scripts/nudgebee-setup.mjs [https://vivaahmesh.vercel.app]
 // Flow: event vivaahmesh_call_result_stuck (or Run) → check state (dry run) → human approval →
 //       POST /api/ops/recover: Flagsmith result_processing_paused OFF, replay stored answers once. Never dials.
+if (process.env.CALL_RESULT_PROCESSOR === "worker") throw new Error("Use docs/nudgebee-workflows.md for worker mode");
 const BASE = process.argv[2] ?? "https://vivaahmesh.vercel.app";
 const NB = "https://app.nudgebee.com/api/rpc";
 const rpc = async (method, params) => {
@@ -10,8 +12,9 @@ const rpc = async (method, params) => {
   if (j.error) throw new Error(`${method}: ${JSON.stringify(j.error)}`);
   return j.result;
 };
-const account = (await rpc("accounts_list", {})).rows.find((a) => a.status === "active").id;
-const headers = { "content-type": "application/json", "x-ops-secret": process.env.OPS_SECRET };
+const account = process.env.NUDGEBEE_ACCOUNT_ID || (await rpc("accounts_list", {})).rows.find((a) => a.status === "active")?.id;
+if (!account) throw new Error("Set NUDGEBEE_ACCOUNT_ID to the account that receives call incidents");
+const headers = { "content-type": "application/json", "x-ops-secret": "{{ Secrets.VIVAAHMESH_OPS_SECRET }}" };
 const out = await rpc("workflow_create", {
   request: {
     account_id: account,
@@ -22,7 +25,7 @@ const out = await rpc("workflow_create", {
       definition: {
         timeout: "30m",
         triggers: [
-          { type: "event", params: { filter: '{{ event.aggregation_key == "vivaahmesh_call_result_stuck" }}' } },
+          { type: "event", params: { filter: '{{ event.event_type == "vivaahmesh_call_result_stuck" }}' } },
           { type: "manual", params: {} },
         ],
         tasks: [

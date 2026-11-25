@@ -1,0 +1,46 @@
+name: result-recovery
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'supabase/migrations/**'
+      - 'ops/**'
+      - '.github/workflows/result-recovery.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'supabase/migrations/**'
+      - 'ops/**'
+      - '.github/workflows/result-recovery.yml'
+permissions:
+  contents: read
+jobs:
+  recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - name: Prepare PostgreSQL and PostgREST
+        shell: bash
+        run: |
+          pg_config --bindir >> "$GITHUB_PATH"
+          curl --fail --location --retry 3 https://github.com/PostgREST/postgrest/releases/download/v14.1/postgrest-v14.1-linux-static-x86-64.tar.xz -o "$RUNNER_TEMP/postgrest.tar.xz"
+          echo "bdab6ab3389ca0d6c1f3b8363491674dbca71875c3f30261d92d8fecdde35277  $RUNNER_TEMP/postgrest.tar.xz" | sha256sum --check
+          tar -xJf "$RUNNER_TEMP/postgrest.tar.xz" -C "$RUNNER_TEMP" postgrest
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Verify recovery and household convergence
+        run: web/tests/recovery.sh
+      - name: Build the Azure worker image
+        run: docker build --tag vivaahmesh-result-worker:ci --file ops/result-worker/Dockerfile .
+      - name: Verify the worker runtime on a read-only filesystem
+        run: |
+          docker run --rm --read-only --env TSX_DISABLE_CACHE=1 --entrypoint node vivaahmesh-result-worker:ci \
+            --conditions=react-server --import tsx -e "const { processCallResult } = require('./src/lib/server/calls.ts'); if (typeof processCallResult !== 'function' || process.getuid() === 0) process.exit(1)"

@@ -1,6 +1,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { db } from "./supabase";
+import { reportResultIncidents } from "./result-incidents";
 import { flagsForMember, killSwitch } from "./flags";
 import { HttpError, logEvent, memberships } from "./weddings";
 import { appUrl, escapeHtml, sendWithApp } from "./telegram-bot";
@@ -239,15 +240,29 @@ export async function storeCallResult(callId: string, payload: SarvamWebhook) {
   return { call: stored, duplicate: !!call.result };
 }
 
-/** Apply the original vendor turns and preserve the chain of corrections. */
-/** One NudgeBee incident per stuck result: finding_id is the provider attempt, so duplicate callbacks update it. */
-async function reportStuck(callId: string, why: string) {
-  const { data: c } = await db().from("calls").select("id, wedding_id, provider_attempt_id, recipient_name, result_received_at, flags").eq("id", callId).maybeSingle();
-  if (!c) return;
+/** Called only after the provider result has been persisted. In worker mode the web
+ * process never applies it, so stopping the worker leaves a recoverable queue. */
+export async function dispatchStoredResult(callId: string) {
+  if (process.env.CALL_RESULT_PROCESSOR !== "worker") return processCallResult(callId);
+  if (!(await killSwitch("result_processing_paused"))) return "queued";
+  await reportStuck(callId, "paused");
+  return "paused";
+}
+
+/** The workflow webhook is the incident transport in Azure. Existing API-key installations
+ * keep their original finding IDs, event resolution and approval automation. */
+async function reportStuck(callId: string, why: "paused" | "failed") {
+  if (process.env.NUDGEBEE_EVENT_WEBHOOK_URL) {
+    await reportResultIncidents(callId, why);
+    return;
+  }
+  if (!process.env.NUDGEBEE_API_KEY) return;
+  const { data: c } = await db().from("calls").select("id, wedding_id, provider_attempt_id, result_received_at, flags").eq("id", callId).is("processed_at", null).maybeSingle();
+  if (!c?.result_received_at) return;
   const eventId = await reportEvent({
     findingId: `vivaahmesh-call:${c.provider_attempt_id ?? c.id}`,
     aggregationKey: "vivaahmesh_call_result_stuck",
-    title: `Venue call answer saved but not applied (${c.recipient_name})`,
+    title: "Venue call answer saved but not applied",
     description:
       `A Sarvam venue call finished and its answer is stored, but the families' plan has not been updated. Reason: ${why}. ` +
       "Recovery (needs approval): turn Flagsmith flag result_processing_paused off, then POST /api/ops/recover. Recovery never dials anyone.",
@@ -262,26 +277,26 @@ result_received_at=${c.result_received_at}`,
   if (eventId) await db().from("calls").update({ flags: { ...(c.flags as object), nudgebee_event_id: eventId } }).eq("id", c.id);
 }
 
-export async function processCallResult(callId: string): Promise<"applied" | "paused" | "already" | "no_result"> {
+export async function processCallResult(callId: string): Promise<"applied" | "paused" | "already" | "no_result" | "superseded"> {
   if (await killSwitch("result_processing_paused")) {
-    await reportStuck(callId, "result_processing_paused is on");
+    if (process.env.CALL_RESULT_PROCESSOR !== "worker") await reportStuck(callId, "paused");
     return "paused";
   }
   try {
     const out = await applyCallResult(callId);
-    if (out === "applied") {
+    if ((out === "applied" || out === "superseded" || out === "already") && process.env.NUDGEBEE_API_KEY) {
       const { data: c } = await db().from("calls").select("flags").eq("id", callId).maybeSingle();
       const eventId = (c?.flags as { nudgebee_event_id?: string } | null)?.nudgebee_event_id;
       if (eventId) await resolveEvent(eventId);
     }
     return out;
   } catch (e) {
-    await reportStuck(callId, `processing failed: ${(e as Error).message}`);
+    await reportStuck(callId, "failed").catch(() => console.error("Call incident delivery failed."));
     throw e;
   }
 }
 
-async function applyCallResult(callId: string): Promise<"applied" | "already" | "no_result"> {
+async function applyCallResult(callId: string): Promise<"applied" | "already" | "no_result" | "superseded"> {
   const s = db();
   const { data: call, error } = await s.from("calls").select("*").eq("id", callId).maybeSingle();
   if (error) throw error;
@@ -320,11 +335,12 @@ async function applyCallResult(callId: string): Promise<"applied" | "already" | 
       cutoff_status: variables.cutoff_status ?? (variables.confirmed === "no" ? "unresolved" : undefined),
     },
   });
-  const { data: applied, error: applyError } = await s.rpc("apply_call_evidence", {
+  const { data: outcome, error: applyError } = await s.rpc("apply_call_evidence_ordered", {
     p_call: callId, p_evidence: facts, p_follow_ups: venueFollowUpCount({ connected, transcript }),
   });
   if (applyError) throw applyError;
-  if (!applied) return "already";
+  if (outcome === "already" || outcome === "superseded") return outcome;
+  if (outcome !== "applied") throw new Error("Unexpected call evidence outcome");
   const latest = facts.at(-1);
   let told = false;
   try {
@@ -384,5 +400,5 @@ export async function simulateRehearsalAnswer(callId: string) {
       { role: "agent", text: "So amplified music can play until 10:30 pm. Thank you!" },
     ],
   });
-  return processCallResult(callId);
+  return dispatchStoredResult(callId);
 }

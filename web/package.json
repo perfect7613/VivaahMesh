@@ -20,7 +20,8 @@
     "react-dom": "19.3.0",
     "sarvam-conv-ai-sdk": "0.0.42",
     "server-only": "^0.0.1",
-    "tailwind-merge": "^3.7.1"
+    "tailwind-merge": "^3.7.1",
+    "tsx": "4.23.15"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",

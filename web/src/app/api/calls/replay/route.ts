@@ -1,15 +1,20 @@
-import { timingSafeEqual } from "node:crypto";
-import { replayPending } from "@/lib/server/calls";
+import { processCallResult, replayPending } from "@/lib/server/calls";
+import { authorizedOps } from "@/lib/server/ops-auth";
 
-/**
- * Ops endpoint for the NudgeBee recovery runbook: after `result_processing_paused` is turned
- * off, apply every stored-but-unapplied call result exactly once. Safe to call repeatedly.
- */
+export const maxDuration = 300;
+const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+
+/** Empty requests drain the queue. An incident replay applies exactly the selected stored answer. */
 export async function POST(req: Request) {
-  const want = Buffer.from(process.env.OPS_SECRET ?? "");
-  const got = Buffer.from(req.headers.get("x-ops-secret") ?? "");
-  if (!want.length || want.length !== got.length || !timingSafeEqual(want, got)) {
-    return Response.json({ error: "forbidden" }, { status: 403 });
-  }
-  return Response.json({ results: await replayPending() });
+  if (!authorizedOps(req)) return Response.json({ error: "forbidden" }, { status: 403 });
+  const raw = await req.text();
+  if (!raw.trim()) return Response.json({ results: await replayPending() });
+
+  let callId: unknown;
+  try { callId = JSON.parse(raw)?.callId; } catch { /* invalid JSON */ }
+  if (typeof callId !== "string" || !UUID.test(callId)) return Response.json({ error: "invalid_call_id" }, { status: 400 });
+
+  const outcome = await processCallResult(callId);
+  const status = outcome === "paused" ? 409 : outcome === "no_result" ? 404 : 200;
+  return Response.json({ results: { [callId]: outcome } }, { status });
 }

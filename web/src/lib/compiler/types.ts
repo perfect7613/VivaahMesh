@@ -58,11 +58,18 @@ export const DEFAULT_POLICY: CompilerPolicy = {
   allowDanceDuringDinner: false,
 };
 
+export interface MakeupOption {
+  functionKind: string;
+  proposalId: string;
+  readyBy: Minute;
+}
+
 export interface Snapshot {
   weddingId: string;
   revision: number;
   activities: Activity[];
   facts: Fact[];
+  withdrawnMakeupOptions?: MakeupOption[];
 }
 
 export interface Conflict {

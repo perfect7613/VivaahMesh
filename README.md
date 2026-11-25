@@ -67,9 +67,10 @@ Segments: `marathi_speakers` (language = mr → Bulbul recap), `household_a` (co
 Create everything with `node web/scripts/flagsmith-setup.mjs`. Flip a flag live with `node web/scripts/flag.mjs <flag> on|off|key=value`.
 
 ### NudgeBee: incident and approval-gated recovery
-1. A venue answer arrives while `result_processing_paused` is on, or applying it fails. The app stores it and reports a **HIGH** event through NudgeBee `events.store`, with `finding_id = vivaahmesh-call:<attempt_id>`, so a duplicate callback updates the same event. AI analysis is triggered. Agent failures are reported too (once per wedding per hour).
-2. The NudgeBee automation `vivaahmesh-call-result-recovery` (created by `web/scripts/nudgebee-setup.mjs`) triggers on that event. It checks state, then **waits for a human approval**.
-3. On approval it calls `POST /api/ops/recover`. That turns the Flagsmith kill switch off, waits until the app sees it, and replays every stored answer **exactly once**. Each applied answer resolves its NudgeBee event. Recovery never dials anyone.
+The Azure worker leases saved vendor answers from Postgres. A stopped worker leaves answers available for recovery. An independent NudgeBee scan reports overdue results, keyed by the provider result ID, and requests an investigation. Human approval turns off the Flagsmith pause switch, restores the worker and replays the identified call. Both households read the resulting plan revision. [Azure worker setup](docs/result-worker.md) · [NudgeBee workflows and rehearsal](docs/nudgebee-workflows.md)
+
+Existing inline deployments can keep their API-key incident reporting, agent-failure alerts and approved recovery endpoint. The Azure workflows use a separate integration webhook.
+
 
 ## Demo script (≈4 min)
 
@@ -96,7 +97,7 @@ npm run dev                                                 # http://localhost:3
 node scripts/flagsmith-setup.mjs                            # flags + segments
 vercel deploy --prod                                        # then set the same env on Vercel
 curl -X POST "$APP_URL/api/telegram/setup" -H "x-setup-secret: $TELEGRAM_WEBHOOK_SECRET"
-NUDGEBEE_API_KEY=… OPS_SECRET=… node scripts/nudgebee-setup.mjs "$APP_URL"
+# For the Azure result worker and NudgeBee automation, follow docs/result-worker.md.
 gh secret set OPS_SECRET                                    # heartbeat workflow (.github/workflows/heartbeat.yml)
 ```
 
@@ -110,7 +111,8 @@ gh secret set OPS_SECRET                                    # heartbeat workflow
 | `CALLS_WEBHOOK_SECRET` (32+ chars) | Per-call webhook tokens, dictation drafts |
 | `FLAGSMITH_SERVER_KEY`, `FLAGSMITH_ADMIN_API_KEY` | Flag evaluation; admin key for setup and recovery |
 | `FIRECRAWL_API_KEY` | Agent web search + page reading |
-| `NUDGEBEE_API_KEY` | Ops events (`sk-nb-…` platform token) |
+| `NUDGEBEE_API_KEY`, `NUDGEBEE_ACCOUNT_ID` | API-based ops events and cluster selection |
+| `CALL_RESULT_PROCESSOR`, `NUDGEBEE_EVENT_WEBHOOK_URL` | Azure result worker mode and incident workflow |
 | `OPS_SECRET` | Heartbeat, replay and recovery endpoints |
 
 ## Security model
