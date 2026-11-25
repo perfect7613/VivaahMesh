@@ -17,7 +17,7 @@ function intake(bothVariants = true, status = 200) {
     const index = Number(identifier.split(":").at(-1));
     const variant = bothVariants && index % 2 ? "clarify_scope" : "baseline";
     return Response.json({ flags: [{ feature: { id: 7, name: "caller_prompt" }, enabled: true,
-      feature_state_value: variant, variant: "key-" + variant,
+      feature_state_value: variant, variant: variant === "baseline" ? "control" : "clarification-treatment",
       metadata: { experiment: { id: 37, name: "caller", in_experiment: true } } }] });
   };
   return { events, transport };
@@ -34,7 +34,7 @@ describe("caller experiment delivery through the Flagsmith SDK", () => {
       const rows = events.filter((event) => event.identifier === id);
       expect(rows).toHaveLength(4);
       expect(rows.map((row) => row.event)).toEqual(expect.arrayContaining(Object.values(METRICS)));
-      expect(rows[0].value).toMatch(/^key-/);
+      expect(["control", "clarification-treatment"]).toContain(rows[0].value);
       expect(rows.every((row) => row.metadata.experiment_id === 37 && row.metadata.source === "scripted_replay")).toBe(true);
     }
     const unresolved = events.filter((event) => event.event === METRICS.confirmed && event.metadata.scenario === "unknown");
