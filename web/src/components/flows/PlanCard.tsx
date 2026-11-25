@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { dict, type Lang } from "@/lib/i18n";
+import { tr, type Lang } from "@/lib/i18n";
 import { api, haptic } from "@/lib/client/telegram";
 import { fmtMinute } from "@/lib/compiler/compile";
 import type { Activity, BlockingItem, CompileResult, FactKind, Reason, Requester, Resolver } from "@/lib/compiler/types";
@@ -9,6 +9,7 @@ import type { View } from "./types";
 
 /** Client mirror of the server's PlanView (src/lib/server/plan.ts). */
 interface Plan {
+  approval?: { proposalId: string; revision: number; current: boolean; by: string | null; at: string } | null;
   policy?: { version: string; strategy: string; source: string };
   snapshotRevision: number;
   activities: Activity[];
@@ -24,7 +25,7 @@ const POLL_MS = 5000;
  * (Realtime push arrives with the shared-plan slice; until then this refreshes every few seconds.)
  */
 export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; onCallVenue?: () => void }) {
-  const t = dict[lang];
+  const t = tr(lang);
   const [plan, setPlan] = useState<Plan | null | undefined>(undefined);
   const [seeding, setSeeding] = useState(false);
   // Every request takes a ticket; only the newest ticket may update the card. A slow poll that
@@ -67,6 +68,27 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
       setSeeding(false);
     }
   }
+
+  const [approving, setApproving] = useState<string | null>(null);
+  const [approveError, setApproveError] = useState<string | null>(null);
+  async function approve(proposalId: string) {
+    if (!plan) return;
+    setApproving(proposalId);
+    setApproveError(null);
+    const mine = ++ticket.current;
+    try {
+      const { plan: fresh } = await api<{ plan: Plan | null }>("/api/approvals", { body: { weddingId: view.wedding.id, proposalId, snapshotRevision: plan.snapshotRevision } });
+      haptic.success();
+      if (mine === ticket.current) setPlan(fresh);
+    } catch (e) {
+      haptic.error();
+      setApproveError((e as Error).message);
+      load();
+    } finally {
+      setApproving(null);
+    }
+  }
+  const approvedHere = (id: string) => !!plan?.approval?.current && plan.approval.proposalId === id;
 
   if (plan === undefined) return null;
   if (plan === null) {
@@ -140,6 +162,20 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
                     <ul className="mt-1.5 flex flex-col gap-0.5 text-[13px] text-muted">
                       {p.reasons.map((r, i) => (<li key={i}>✓ {reasonText(r)}</li>))}
                     </ul>
+                    {approvedHere(p.id) ? (
+                      <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-mehendi/15 px-3 py-1 text-[13px] font-medium text-mehendi">
+                        ✓ {t.approvedBy(plan.approval?.by ?? "")}
+                      </p>
+                    ) : view.me.isCouple && !plan.approval?.current ? (
+                      <button
+                        type="button"
+                        onClick={() => approve(p.id)}
+                        disabled={approving !== null}
+                        className="pressable mt-2.5 min-h-11 w-full rounded-xl bg-mehendi text-[15px] font-semibold text-white disabled:opacity-50"
+                      >
+                        {approving === p.id ? "…" : t.approveOption}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </li>
@@ -206,6 +242,10 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
           </ul>
         </div>
       ) : null}
+      {approveError ? (
+        <p className="rounded-2xl border border-sindoor/40 bg-sindoor/10 px-4 py-3 text-[14px]">{approveError === "stale_revision" ? t.approveStale : approveError === "already_approved" ? t.approveAlready : approveError}</p>
+      ) : null}
+      {plan.approval && !plan.approval.current ? <p className="text-[13px] text-muted">{t.approvalOutdated}</p> : null}
       <p className="text-[12px] text-muted">
         {t.planPolicy(result.policyVersion)}
         {plan.policy ? ` · ${t.strategies[plan.policy.strategy] ?? plan.policy.strategy}` : ""}

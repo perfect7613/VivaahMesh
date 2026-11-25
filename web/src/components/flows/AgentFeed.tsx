@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import type { Lang } from "@/lib/i18n";
+import { base, type BaseLang, type Lang } from "@/lib/i18n";
 import { api, haptic } from "@/lib/client/telegram";
 
 interface Run {
@@ -8,12 +8,12 @@ interface Run {
   trigger: "message" | "voice" | "call_result" | "heartbeat" | "manual";
   model: string;
   status: "done" | "running";
-  summary: { en: string; hi: string; mr: string } | null;
+  text: string | null;
   at: string;
   messages: string[];
 }
 
-const COPY: Record<Lang, { checkNow: string; checking: string; empty: string; trig: Record<Run["trigger"], string>; told: (n: number) => string; powered: string }> = {
+const COPY: Record<BaseLang, { checkNow: string; checking: string; empty: string; trig: Record<Run["trigger"], string>; told: (n: number) => string; powered: string }> = {
   en: {
     checkNow: "Check now",
     checking: "Checking…",
@@ -42,13 +42,18 @@ const COPY: Record<Lang, { checkNow: string; checking: string; empty: string; tr
 
 function ago(iso: string, lang: Lang) {
   const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
-  const rtf = new Intl.RelativeTimeFormat(lang === "en" ? "en-IN" : `${lang}-IN`, { numeric: "auto" });
+  let rtf: Intl.RelativeTimeFormat;
+  try {
+    rtf = new Intl.RelativeTimeFormat(lang === "en" ? "en-IN" : `${lang}-IN`, { numeric: "auto" });
+  } catch {
+    rtf = new Intl.RelativeTimeFormat("en-IN", { numeric: "auto" });
+  }
   return min < 60 ? rtf.format(-min, "minute") : rtf.format(-Math.round(min / 60), "hour");
 }
 
 /** What the always-on agent noticed and did, so families can see who is following up. */
 export function AgentFeed({ weddingId, lang }: { weddingId: string; lang: Lang }) {
-  const c = COPY[lang];
+  const c = COPY[base(lang)];
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -108,7 +113,7 @@ export function AgentFeed({ weddingId, lang }: { weddingId: string; lang: Lang }
         <ol className="flex flex-col">
           {runs.slice(0, 5).map((r, i) => (
             <li key={r.id} className={`px-5 py-3.5 ${i ? "border-t border-line" : ""}`}>
-              <p className="text-[15px] leading-snug">{r.status === "running" ? c.checking : r.summary?.[lang] ?? r.summary?.en}</p>
+              <p className="text-[15px] leading-snug">{r.status === "running" ? c.checking : r.text}</p>
               <p className="mt-1 text-[12px] text-muted">
                 {ago(r.at, lang)} · {c.trig[r.trigger]}
                 {r.messages.length ? ` · ${c.told(r.messages.length)}` : ""}

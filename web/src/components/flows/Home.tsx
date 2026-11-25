@@ -1,10 +1,11 @@
 "use client";
 import { useState, type ReactNode } from "react";
-import { dict, pickLang, type Lang } from "@/lib/i18n";
+import { tr, pickLang, type Lang } from "@/lib/i18n";
 import { api, haptic, useBackButton, useMainButton } from "@/lib/client/telegram";
 import { Chip, FallbackButton, Field, Petals, PrivacySwitch, inputClass, formatINR } from "@/components/ui";
 import { TelegramIcon, WhatsAppIcon } from "@/components/landing/BrandIcons";
-import { InvitationCard } from "./InvitationCard";
+import { InvitationCard, formatDate } from "./InvitationCard";
+import { FunctionSheet } from "./FunctionSheet";
 import { PlanCard } from "./PlanCard";
 import { CallScreen } from "./CallScreen";
 import { AgentFeed } from "./AgentFeed";
@@ -22,9 +23,11 @@ function daysUntil(date: string | null) {
 
 export function Home({ view, setView, botUsername, celebrate, initialScreen }: { view: View; setView: (v: View) => void; botUsername: string; celebrate: "created" | "joined" | null; initialScreen?: "call" }) {
   const lang: Lang = pickLang(view.me.language);
-  const t = dict[lang];
+  const t = tr(lang);
   const on = view.flags.on;
   const [adding, setAdding] = useState(false);
+  const [editingFn, setEditingFn] = useState<View["functions"][number] | "new" | null>(null);
+  const canEdit = view.me.isCouple || view.me.role === "parent";
   const [calling, setCalling] = useState(initialScreen === "call" && (view.me.isCouple || view.me.role === "parent"));
   const [copied, setCopied] = useState<string | null>(null);
   const couple = `${view.wedding.partnerA} & ${view.wedding.partnerB}`;
@@ -52,6 +55,20 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
   }
   if (view.me.isCouple && !view.wedding.date) tasks.push({ key: "date", label: t.taskSetDate });
 
+  if (editingFn) {
+    return (
+      <FunctionSheet
+        view={view}
+        fn={editingFn === "new" ? null : editingFn}
+        lang={lang}
+        onClose={() => setEditingFn(null)}
+        onSaved={(v) => {
+          setView(v);
+          setEditingFn(null);
+        }}
+      />
+    );
+  }
   if (calling) return <CallScreen view={view} lang={lang} onClose={() => setCalling(false)} />;
   if (adding) {
     return <AddWish view={view} lang={lang} onClose={() => setAdding(false)} onSaved={(v) => { setView(v); setAdding(false); }} />;
@@ -140,14 +157,35 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
 
           <Section title={t.thePlan}>
             <ul className="overflow-hidden rounded-3xl border border-line bg-card">
-              {view.functions.map((f, i) => (
-                <li key={f.id} className={`flex items-center gap-3 px-5 py-4 ${i ? "border-t border-line" : ""}`}>
-                  <span className="grid size-10 place-items-center rounded-full bg-marigold-soft text-lg" aria-hidden>{FN_EMOJI[f.kind] ?? "🎉"}</span>
-                  <span className="flex-1 font-display text-[19px]">{f.title}</span>
-                  <span className="text-[13px] text-muted">—</span>
-                </li>
-              ))}
+              {view.functions.map((f, i) => {
+                const when = [f.on_date ? formatDate(f.on_date, lang) : null, f.starts_at?.slice(0, 5)].filter(Boolean).join(" · ");
+                return (
+                  <li key={f.id} className={i ? "border-t border-line" : ""}>
+                    <button
+                      type="button"
+                      disabled={!canEdit}
+                      onClick={() => setEditingFn(f)}
+                      className="pressable flex w-full items-center gap-3 px-5 py-4 text-left disabled:active:scale-100"
+                    >
+                      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-marigold-soft text-lg" aria-hidden>{FN_EMOJI[f.kind] ?? "🎉"}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-display text-[19px]">{f.title}</span>
+                        <span className="block truncate text-[13px] text-muted">
+                          {[when, f.venue].filter(Boolean).join(" · ") || (canEdit ? t.tapToAddDetails : "—")}
+                        </span>
+                        {f.details ? <span className="mt-0.5 block truncate text-[13px] text-body">{f.details}</span> : null}
+                      </span>
+                      {canEdit ? <span aria-hidden className="text-xl text-muted">›</span> : null}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
+            {canEdit ? (
+              <button type="button" onClick={() => setEditingFn("new")} className="pressable mt-3 min-h-12 w-full rounded-2xl border border-dashed border-marigold/60 text-[15px] font-medium">
+                ＋ {t.addFunction}
+              </button>
+            ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
               {view.me.isCouple && view.wedding.guestCount ? <span>👥 {view.wedding.guestCount}</span> : null}
               {view.me.isCouple && view.wedding.budgetInr ? <span>🔒 {formatINR(view.wedding.budgetInr)}</span> : null}
@@ -234,7 +272,7 @@ function Section({ title, children, tone, action }: { title: string; children: R
 }
 
 function AddWish({ view, lang, onClose, onSaved }: { view: View; lang: Lang; onClose: () => void; onSaved: (v: View) => void }) {
-  const t = dict[lang];
+  const t = tr(lang);
   const family = view.households.find((h) => h.id === view.me.householdId)?.name ?? "";
   const [picked, setPicked] = useState<string[]>([]);
   const [note, setNote] = useState("");

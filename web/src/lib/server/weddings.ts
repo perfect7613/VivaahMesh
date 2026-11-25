@@ -15,7 +15,8 @@ export interface CreateWeddingInput {
   partnerB: string;
   weddingDate?: string | null;
   city?: string | null;
-  functions: FunctionKind[];
+  /** Preset kinds ("sangeet") or the family's own names ("Roka", "Jaggo"). */
+  functions: string[];
   guestCount?: number | null;
   budgetInr?: number | null;
   myFamily: string;
@@ -61,11 +62,17 @@ export async function createWedding(tgUserId: number, input: CreateWeddingInput)
   if (hErr) throw hErr;
   const mine = households.find((h) => h.side === "A")!;
 
-  const kinds = input.functions.filter((k) => FUNCTION_KINDS.includes(k));
-  if (kinds.length) {
-    const { error: fErr } = await s.from("functions").insert(
-      kinds.map((k, i) => ({ wedding_id: wedding.id, kind: k, title: FUNCTION_TITLES[k], sort: i })),
-    );
+  const seen = new Set<string>();
+  const fnRows = (input.functions ?? [])
+    .slice(0, 16)
+    .map((f) => {
+      const known = (FUNCTION_KINDS as readonly string[]).includes(f) ? (f as FunctionKind) : null;
+      const title = known ? FUNCTION_TITLES[known] : clean(f, 40);
+      return title ? { kind: known ?? "other", title } : null;
+    })
+    .filter((r): r is { kind: string; title: string } => !!r && !seen.has(r.title.toLowerCase()) && !!seen.add(r.title.toLowerCase()));
+  if (fnRows.length) {
+    const { error: fErr } = await s.from("functions").insert(fnRows.map((r, i) => ({ wedding_id: wedding.id, ...r, sort: i })));
     if (fErr) throw fErr;
   }
 
@@ -205,7 +212,7 @@ export async function weddingView(tgUserId: number, weddingId?: string) {
     s.from("weddings").select("*").eq("id", me.wedding_id).single(),
     s.from("households").select("id, side, name, invite_code").eq("wedding_id", me.wedding_id).order("side"),
     s.from("members").select("id, household_id, display_name, role, is_couple, language").eq("wedding_id", me.wedding_id),
-    s.from("functions").select("id, kind, title, sort").eq("wedding_id", me.wedding_id).order("sort"),
+    s.from("functions").select("id, kind, title, sort, on_date, starts_at, venue, details").eq("wedding_id", me.wedding_id).order("sort"),
     s.from("priorities").select("id, household_id, member_id, kind, note, visibility, source, created_at").eq("wedding_id", me.wedding_id).order("created_at", { ascending: false }),
   ]);
   for (const r of [w, hs, ms, fs, ps]) if (r.error) throw r.error;
@@ -267,4 +274,39 @@ export class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message);
   }
+}
+
+/** The couple or a parent fills in a function's details (date, start time, venue, notes). */
+export async function updateFunction(
+  tgUserId: number,
+  input: { functionId: string; title?: string; onDate?: string | null; startsAt?: string | null; venue?: string | null; details?: string | null },
+) {
+  const s = db();
+  const { data: fn } = await s.from("functions").select("id, wedding_id").eq("id", input.functionId).maybeSingle();
+  if (!fn) throw new HttpError(404, "unknown_function");
+  const me = (await memberships(tgUserId)).find((m) => m.wedding_id === fn.wedding_id);
+  if (!me) throw new HttpError(403, "not_a_member");
+  if (!me.is_couple && me.role !== "parent") throw new HttpError(403, "parents_or_couple_only");
+  const date = input.onDate && /^\d{4}-\d{2}-\d{2}$/.test(input.onDate) ? input.onDate : null;
+  const time = input.startsAt && /^\d{2}:\d{2}$/.test(input.startsAt) ? input.startsAt : null;
+  const patch: Record<string, unknown> = { on_date: date, starts_at: time, venue: clean(input.venue ?? "", 80) || null, details: clean(input.details ?? "", 400) || null };
+  if (input.title && clean(input.title, 40)) patch.title = clean(input.title, 40);
+  const { error } = await s.from("functions").update(patch).eq("id", fn.id);
+  if (error) throw error;
+  await logEvent(fn.wedding_id, me.id, "function_updated", { function_id: fn.id });
+  return fn.wedding_id as string;
+}
+
+/** Add a function the family names itself after setup. */
+export async function addFunction(tgUserId: number, weddingId: string, title: string) {
+  const me = (await memberships(tgUserId)).find((m) => m.wedding_id === weddingId);
+  if (!me) throw new HttpError(403, "not_a_member");
+  if (!me.is_couple && me.role !== "parent") throw new HttpError(403, "parents_or_couple_only");
+  const name = clean(title, 40);
+  if (!name) throw new HttpError(400, "bad_title");
+  const known = (Object.entries(FUNCTION_TITLES) as [FunctionKind, string][]).find(([, v]) => v.toLowerCase() === name.toLowerCase())?.[0];
+  const { count } = await db().from("functions").select("id", { count: "exact", head: true }).eq("wedding_id", weddingId);
+  const { error } = await db().from("functions").insert({ wedding_id: weddingId, kind: known ?? "other", title: name, sort: count ?? 0 });
+  if (error) throw error.code === "23505" ? new HttpError(409, "exists") : error;
+  await logEvent(weddingId, me.id, "function_added", { title: name });
 }

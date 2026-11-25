@@ -34,6 +34,7 @@ export async function chat(opts: {
   tools?: ToolDef[];
   reasoning?: "low" | "high" | "max";
   maxTokens?: number;
+  json?: boolean;
 }): Promise<{ message: ChatMessage; usage: { prompt_tokens: number; completion_tokens: number } }> {
   const res = await fetch(`${BASE}/v2/chat/completions`, {
     method: "POST",
@@ -47,8 +48,9 @@ export async function chat(opts: {
       reasoning_effort: opts.reasoning ?? "low",
       max_tokens: opts.maxTokens ?? 2000,
       temperature: 0.2,
+      response_format: opts.json ? { type: "json_object" } : undefined,
     }),
-    signal: AbortSignal.timeout(50_000),
+    signal: AbortSignal.timeout(55_000),
   });
   const json = (await res.json().catch(() => ({}))) as {
     choices?: { message: ChatMessage }[];
@@ -76,4 +78,17 @@ export async function transcribe(audio: ArrayBuffer, filename = "voice.ogg"): Pr
   const json = (await res.json().catch(() => ({}))) as { transcript?: string; language_code?: string | null };
   if (!res.ok || typeof json.transcript !== "string") throw new Error(`sarvam stt ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
   return { transcript: json.transcript.trim(), languageCode: json.language_code ?? null };
+}
+
+/** Sarvam Translate (sarvam-translate:v1, all 22 scheduled languages). English → target. */
+export async function translate(text: string, target: string): Promise<string> {
+  const res = await fetch(`${BASE}/translate`, {
+    method: "POST",
+    headers: { "api-subscription-key": key(), "content-type": "application/json" },
+    body: JSON.stringify({ input: text.slice(0, 2000), source_language_code: "en-IN", target_language_code: target, model: "sarvam-translate:v1" }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const json = (await res.json().catch(() => ({}))) as { translated_text?: string };
+  if (!res.ok || !json.translated_text) throw new Error(`sarvam translate ${res.status}`);
+  return json.translated_text;
 }

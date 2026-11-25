@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { botCopy, pickLang } from "@/lib/i18n";
 import { escapeHtml, send, sendWithApp, tg } from "@/lib/server/telegram-bot";
 import { runAgent } from "@/lib/server/agent";
+import { localized } from "@/lib/server/translate";
 import { transcribe } from "@/lib/server/sarvam";
 import { addPriorities, invitePreview, memberships } from "@/lib/server/weddings";
 import { db } from "@/lib/server/supabase";
@@ -40,7 +41,9 @@ async function handle(msg: TgMessage) {
   const chatId = msg.chat.id;
   const mine = await memberships(from.id);
   const lang = pickLang(mine[0]?.language ?? from.language_code);
-  const t = botCopy[lang];
+  // Hand-written copy for Marathi, Hindi and English; Sarvam Translate for every other language.
+  type Copy = (typeof botCopy)["en"];
+  const L = (pick: (c: Copy) => string) => localized({ en: pick(botCopy.en), hi: pick(botCopy.hi), mr: pick(botCopy.mr) }, lang);
   const text = msg.text?.trim() ?? "";
 
   if (text.startsWith("/start")) {
@@ -48,19 +51,19 @@ async function handle(msg: TgMessage) {
     if (payload.startsWith("join_")) {
       const code = payload.slice(5);
       const p = await invitePreview(code);
-      if (!p) return send(chatId, t.inviteInvalid);
+      if (!p) return send(chatId, await L((c) => c.inviteInvalid));
       const couple = `${p.wedding.partner_a} & ${p.wedding.partner_b}`;
-      return sendWithApp(chatId, t.invited(escapeHtml(couple), escapeHtml(p.family)), t.joinCta, `/tg?join=${encodeURIComponent(code)}`);
+      return sendWithApp(chatId, await L((c) => c.invited(escapeHtml(couple), escapeHtml(p.family))), await L((c) => c.joinCta), `/tg?join=${encodeURIComponent(code)}`);
     }
     if (mine.length) {
       const { data: w } = await db().from("weddings").select("partner_a, partner_b").eq("id", mine[0].wedding_id).single();
-      return sendWithApp(chatId, t.welcomeBack(escapeHtml(`${w?.partner_a} & ${w?.partner_b}`)), t.openCta, `/tg?wedding=${mine[0].wedding_id}`);
+      return sendWithApp(chatId, await L((c) => c.welcomeBack(escapeHtml(`${w?.partner_a} & ${w?.partner_b}`))), await L((c) => c.openCta), `/tg?wedding=${mine[0].wedding_id}`);
     }
-    return sendWithApp(chatId, t.welcome(escapeHtml(from.first_name)), t.startCta, "/tg?flow=create");
+    return sendWithApp(chatId, await L((c) => c.welcome(escapeHtml(from.first_name))), await L((c) => c.startCta), "/tg?flow=create");
   }
 
   const me = mine[0];
-  if (!me) return sendWithApp(chatId, t.notMember, t.startCta, "/tg?flow=create");
+  if (!me) return sendWithApp(chatId, await L((c) => c.notMember), await L((c) => c.startCta), "/tg?flow=create");
 
   const { data: fam } = await db().from("households").select("name").eq("id", me.household_id).maybeSingle();
   const family = escapeHtml(fam?.name ?? "");
@@ -80,7 +83,7 @@ async function handle(msg: TgMessage) {
       await db().from("priorities").update({ transcript: transcript.transcript, transcript_lang: transcript.languageCode }).eq("id", id);
     }
     if (await agentReplied(me.wedding_id, "voice", me.id, note)) return;
-    return sendWithApp(chatId, t.voiceSoon, t.openCta, `/tg?wedding=${me.wedding_id}`);
+    return sendWithApp(chatId, await L((c) => c.voiceSoon), await L((c) => c.openCta), `/tg?wedding=${me.wedding_id}`);
   }
 
   if (text) {
@@ -88,7 +91,7 @@ async function handle(msg: TgMessage) {
     await tg("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
     await addPriorities(me, [], text, "household", "telegram");
     if (await agentReplied(me.wedding_id, "message", me.id, text)) return;
-    return sendWithApp(chatId, t.saved(family), t.openCta, `/tg?wedding=${me.wedding_id}`);
+    return sendWithApp(chatId, await L((c) => c.saved(family)), await L((c) => c.openCta), `/tg?wedding=${me.wedding_id}`);
   }
 }
 

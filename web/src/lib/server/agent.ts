@@ -6,7 +6,8 @@ import { logEvent } from "./weddings";
 import { escapeHtml, send, sendWithApp } from "./telegram-bot";
 import { chat, type ChatMessage, type ToolDef } from "./sarvam";
 import { compile, fmtMinute } from "@/lib/compiler/compile";
-import { pickLang, type Lang } from "@/lib/i18n";
+import { pickLang, type BaseLang } from "@/lib/i18n";
+import { localized } from "./translate";
 
 /**
  * The always-on VivaahMesh agent. GLM-5.3 (Sarvam Token Factory) reads the wedding and decides
@@ -161,7 +162,7 @@ export async function runAgent(weddingId: string, trigger: Trigger, opts: { send
   const context = [
     `Wedding: ${wedding.partner_a} & ${wedding.partner_b}, ${wedding.wedding_date ?? "date not set"}, ${wedding.city ?? ""}. Stage: ${wedding.stage}. Now: ${new Date().toISOString()}.`,
     `Families: ${(hs.data ?? []).map((h) => `Household ${h.side} = ${h.name}`).join("; ")}.`,
-    `People: ${members.map((m) => `${m.display_name} (${m.is_couple ? "couple" : m.role}, Household ${m.side ?? "?"}, reads ${m.language})`).join("; ")}.`,
+    `People: ${members.map((m) => `${m.display_name} (${m.is_couple ? "couple" : m.role}, Household ${m.side ?? "?"}, reads ${m.language})`).join("; ")}. (Write messages in English, Hindi and Marathi; people who read other languages get a Sarvam translation of the English.)`,
     `Family notes (newest first):\n${(ps.data ?? []).map((p) => `- ${nameOf(p.member_id)} of ${familyOf(p.household_id)} via ${p.source}: "${p.transcript ?? p.note ?? p.kind}"${p.visibility === "household" ? ` [PRIVATE to Household ${sideOf(p.household_id)}]` : " [shared]"}`).join("\n") || "none"}`,
     `Plan:\n${planText}`,
     `Vendor calls: ${(calls.data ?? []).map((c) => `${c.recipient_name}: ${c.status}${c.processed_at ? " (answer applied)" : ""} at ${c.created_at}`).join("; ") || "none yet"}`,
@@ -257,17 +258,20 @@ async function runTool(ctx: Ctx, name: string, a: Record<string, string>): Promi
   }
 
   const button = a.button === "authorize_call" && audience === "deciders" ? "authorize_call" : a.button === "open_plan" ? "open_plan" : "none";
-  const btnText: Record<Lang, Record<string, string>> = {
+  const btnText: Record<BaseLang, Record<string, string>> = {
     en: { authorize_call: "Review the call", open_plan: "Open the plan" },
     hi: { authorize_call: "कॉल देखें", open_plan: "प्लान खोलें" },
     mr: { authorize_call: "कॉल पाहा", open_plan: "प्लॅन उघडा" },
   };
   const path = `/tg?wedding=${ctx.weddingId}${button === "authorize_call" ? "&screen=call" : ""}`;
   await Promise.allSettled(
-    recipients.map((m) => {
+    recipients.map(async (m) => {
       const lang = pickLang(m.language);
-      const body = `🪔 ${escapeHtml((a as Trilingual)[lang])}`;
-      return button === "none" ? send(Number(m.tg_user_id), body) : sendWithApp(Number(m.tg_user_id), body, btnText[lang][button], path);
+      // Marathi, Hindi and English come from the model; any other language is Sarvam-translated from English.
+      const body = `🪔 ${escapeHtml(await localized({ en: a.en, hi: a.hi, mr: a.mr }, lang))}`;
+      if (button === "none") return send(Number(m.tg_user_id), body);
+      const label = await localized({ en: btnText.en[button], hi: btnText.hi[button], mr: btnText.mr[button] }, lang);
+      return sendWithApp(Number(m.tg_user_id), body, label, path);
     }),
   );
   ctx.sent.push({ audience, en: a.en, button });

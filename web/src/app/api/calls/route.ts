@@ -1,5 +1,8 @@
 import { authed } from "@/lib/server/route";
-import { authorizeCall, callPreview } from "@/lib/server/calls";
+import { after } from "next/server";
+import { authorizeCall, callPreview, simulateRehearsalAnswer } from "@/lib/server/calls";
+
+export const maxDuration = 60;
 
 /** Who will be called, why, and whether dialing is currently allowed (Flagsmith kill switch). */
 export const GET = authed(async (req, viewer) => {
@@ -11,5 +14,12 @@ export const GET = authed(async (req, viewer) => {
 export const POST = authed(async (req, viewer) => {
   const body = (await req.json().catch(() => ({}))) as { weddingId?: string };
   const call = await authorizeCall(viewer.id, body.weddingId);
+  if ("rehearsal" in call && call.rehearsal && call.status === "dialing") {
+    // Rehearsal: the "venue" answers after a few seconds through the same store → apply path.
+    after(async () => {
+      await new Promise((r) => setTimeout(r, 9000));
+      await simulateRehearsalAnswer(call.id).catch((e) => console.error("rehearsal answer failed", e));
+    });
+  }
   return { call: { id: call.id, status: call.status, error: call.error } };
 });
