@@ -1,4 +1,5 @@
-import { callResponse, consentToVenueCall, consentView, jsonObject } from "@/lib/server/browser-calls";
+import { voiceJsonObject } from "@/lib/server/voice-request";
+import { callResponse, consentToVenueCall, consentView } from "@/lib/server/browser-calls";
 
 export async function GET(_req: Request, ctx: RouteContext<"/api/calls/consent/[token]">) {
   const { token } = await ctx.params;
@@ -7,5 +8,5 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/calls/consent/[
 
 export async function POST(req: Request, ctx: RouteContext<"/api/calls/consent/[token]">) {
   const { token } = await ctx.params;
-  return callResponse(async () => consentToVenueCall(token, await jsonObject(req)));
+  return callResponse(async () => consentToVenueCall(token, await voiceJsonObject(req)));
 }

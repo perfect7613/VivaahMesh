@@ -1,9 +1,11 @@
 // End-to-end live check against a deployment, with signed Telegram initData.
 //   node scripts/e2e-live.mjs https://vivaahmesh.vercel.app
-// Creates a throwaway wedding (Telegram ids 9100000xx) and deletes it at the end.
+// Creates a throwaway wedding (Telegram ids 9100000xx) and prints its ID for cleanup.
 import { createHmac } from "node:crypto";
 
-const BASE = process.argv[2] ?? "http://localhost:3000";
+import { rehearsalOrigin } from "./rehearsal-origin.mjs";
+
+const BASE = rehearsalOrigin(process.argv[2] ?? "http://localhost:3000");
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const sign = (user) => {
   const p = { auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify(user) };
@@ -13,6 +15,7 @@ const sign = (user) => {
 };
 const call = async (user, path, body, method) => {
   const r = await fetch(BASE + path, {
+    redirect: "error",
     method: method ?? (body ? "POST" : "GET"),
     headers: { authorization: `tma ${sign(user)}`, "content-type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
@@ -44,6 +47,10 @@ ok(r.status === 200 && r.json.view.functions.find((f) => f.id === sangeet.id).ve
 const hA = v.households.find((h) => h.side === "A"), hB = v.households.find((h) => h.side === "B");
 r = await call(aai, "/api/join", { code: hA.inviteCode, displayName: "Aai", role: "parent", language: "mr", priorities: ["elders_dinner"], note: "", visibility: "shared" });
 ok(r.status === 200, "Aai joins (Marathi)");
+const parentId = r.json.view.me.id;
+ok(r.json.view.me.role === "parent" && !r.json.view.me.canManage, "Aai has a parent label before the couple grants access");
+r = await call(meera, "/api/weddings/parent-access", { weddingId: W, memberId: parentId, granted: true }, "PATCH");
+ok(r.status === 200, "couple grants parent access");
 r = await call(riya, "/api/join", { code: hB.inviteCode, displayName: "Riya", role: "cousin", language: "ta", priorities: ["dance"], note: "", visibility: "shared" });
 ok(r.status === 200 && r.json.view.me.language === "ta", "Riya joins in Tamil");
 
@@ -51,8 +58,8 @@ r = await call(riya, "/api/functions", { functionId: sangeet.id, venue: "x" }, "
 ok(r.status === 403, "a cousin cannot edit function details");
 
 const t0 = Date.now();
-r = await fetch(`${BASE}/api/i18n?lang=ta`);
-const ta = await r.json().catch(() => ({}));
+r = await call(riya, "/api/i18n?lang=ta");
+const ta = r.json;
 ok(r.status === 200 && typeof ta.data?.continue === "string" && ta.data.continue !== "Continue", `Tamil UI strings by GLM (${Math.round((Date.now() - t0) / 1000)}s): continue = ${ta.data?.continue}`);
 
 r = await call(meera, "/api/plan", { weddingId: W });
@@ -63,8 +70,9 @@ r = await call(riya, "/api/calls", { weddingId: W });
 ok(r.status === 403, "a cousin cannot authorize a call");
 r = await call(aai, `/api/calls?wedding=${W}`);
 ok(r.status === 200 && r.json.configured, `call preview: ${r.json.recipient?.name}, dialing ${r.json.dialingEnabled ? "on" : "off"}, rehearsal ${!!r.json.rehearsal}`);
-const dialing = r.json.dialingEnabled;
-r = await call(aai, "/api/calls", { weddingId: W });
+const dialing = r.json.dialingEnabled && r.json.rehearsal;
+if (r.json.dialingEnabled && !r.json.rehearsal) throw new Error("This rehearsal requires the simulated dialing channel");
+r = await call(aai, "/api/calls", { weddingId: W, rehearsalOnly: true });
 ok(r.status === 200 && r.json.call.status === (dialing ? "dialing" : "blocked"), `Aai authorizes → ${r.json.call?.status}`);
 
 if (dialing) {
@@ -102,7 +110,7 @@ const done = feed.find((x) => x.status === "done");
 ok(!!done, `agent ran (${feed.map((x) => x.trigger).join(", ")}): ${done?.text ?? "-"}`);
 
 await sleep(2000);
-r = await call(aai, "/api/agent/ask", { weddingId: W, question: "Pune madhe Sangeet sathi changla DJ kiti paise gheto? Ek-don links de." });
+r = await call(aai, "/api/agent/ask", { weddingId: W, question: "/search Sangeet DJ prices in Pune" });
 ok(r.status === 200 && !!r.json.answer, `ask anything (web: ${(r.json.searched ?? []).join(" | ") || "none"}): ${(r.json.answer ?? r.json.reason ?? "").slice(0, 300)}`);
 
 console.log(JSON.stringify({ weddingId: W }));

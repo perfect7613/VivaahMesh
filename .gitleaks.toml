@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "nudgebee-api-key"
+description = "NudgeBee API key"
+regex = '''\bsk-nb-[A-Fa-f0-9]{40,}\b'''
+keywords = ["sk-nb-"]

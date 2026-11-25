@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import { Gloock, Noto_Sans, Noto_Sans_Devanagari, Noto_Serif, Tiro_Devanagari_Marathi } from "next/font/google";
 import "./globals.css";
 
@@ -26,11 +25,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    // telegram-web-app.js writes theme CSS variables onto <html> before hydration.
     <html lang="en" suppressHydrationWarning className={`${noto.variable} ${deva.variable} ${serif.variable} ${gloock.variable} ${tiro.variable} h-full antialiased`}>
       <body className="min-h-full">
-        {/* Telegram Mini App SDK. Harmless outside Telegram (initData is empty there). */}
-        <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
         {children}
       </body>
     </html>

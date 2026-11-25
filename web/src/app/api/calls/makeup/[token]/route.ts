@@ -1,5 +1,5 @@
 import { makeupReplyView, makeupResponse, recordMakeupReply } from "@/lib/server/makeup-enquiries";
-import { HttpError } from "@/lib/server/weddings";
+import { voiceJsonObject } from "@/lib/server/voice-request";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -8,9 +8,5 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
 
 export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  return makeupResponse(async () => {
-    const body: unknown = await req.json().catch(() => null);
-    if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpError(400, "invalid_makeup_reply");
-    return recordMakeupReply(token, body as Record<string, unknown>);
-  });
+  return makeupResponse(async () => recordMakeupReply(token, await voiceJsonObject(req)));
 }

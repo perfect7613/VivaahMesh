@@ -4,8 +4,9 @@
 // Creates a test wedding with fake Telegram users; delete it afterwards (the script prints its id).
 import crypto from "node:crypto";
 
-const BASE = process.argv[2];
-if (!BASE) throw new Error("usage: node scripts/e2e-approvals.mjs <base-url>");
+import { rehearsalOrigin } from "./rehearsal-origin.mjs";
+
+const BASE = rehearsalOrigin(process.argv[2]);
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const secret = crypto.createHmac("sha256", "WebAppData").update(token).digest();
 
@@ -17,6 +18,7 @@ function initData(user) {
 }
 async function call(user, path, body) {
   const res = await fetch(BASE + path, {
+    redirect: "error",
     method: body ? "POST" : "GET",
     headers: { "content-type": "application/json", authorization: `tma ${initData(user)}` },
     body: body ? JSON.stringify(body) : undefined,

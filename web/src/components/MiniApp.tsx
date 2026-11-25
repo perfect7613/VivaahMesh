@@ -33,8 +33,7 @@ export function MiniApp() {
     if (isBase(lang) || dict[lang]) return;
     let alive = true;
     const show = setTimeout(() => alive && setTranslating(true), 0);
-    fetch(`/api/i18n?lang=${lang}`)
-      .then((r) => (r.ok ? r.json() : null))
+    api<{ data: unknown }>(`/api/i18n?lang=${lang}`)
       .then((j) => {
         if (j?.data) registerDict(lang, j.data);
       })

@@ -19,7 +19,7 @@
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "sarvam-conv-ai-sdk": "0.0.42",
+    "sarvam-conv-ai-sdk": "file:vendor/sarvam-conv-ai-sdk-browser-0.0.42.tgz",
     "server-only": "^0.0.1",
     "tailwind-merge": "^3.7.1",
     "tsx": "4.23.15"

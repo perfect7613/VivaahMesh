@@ -30,9 +30,9 @@ VivaahMesh keeps the groups and adds what they can't do:
 
 **The always-on planning agent** (GLM-5.3 on the **Sarvam Token Factory**)
 - Wakes on every message, voice note, family-group update, call result and approval, and on a heartbeat every 5 minutes (GitHub Actions).
-- **Reads each family's own group chat** once the couple or a parent adds the bot ("Add me to your family group" in the app). It saves real updates as notes credited to whoever said them and stays quiet otherwise. Mention it or reply to it and it answers in the group.
-- **Ask anything**: DM the bot or use the Ask box in the app. It answers from the plan and uses **Firecrawl** web search and page reading for vendors, prices, muhurat dates and customs, citing links. It remembers each conversation.
-- Rules enforced in code, not by the prompt: it can't dial or book, it can't leak one family's private note to the other (checked before every message), it sends at most 3 messages per run, and it nudges each audience at most once an hour.
+- **Reads messages from linked household members** once the couple or an authorized parent connects a Telegram group. It saves real updates as private household notes credited to the speaker. Mentions can get a reply based on the recent group messages.
+- **Ask about your plan** in a Telegram DM or the app. For vendor ideas, prices, muhurat dates or customs, type `/search` followed by public search terms. The agent cites public search results and can read a result through Firecrawl. Direct chat history is scoped to the wedding and member.
+- Private conversations only reach their originating chat, and automated notifications use shared plan context. The agent can point authorized family members to the call review screen. Automatic runs can send up to three notifications and are limited to one nudge per audience per hour. Each Telegram account gets 20 interactive agent requests per 24-hour quota window, shared across the Mini App, direct chats, and group mentions or audio. Scheduled checks do not use this quota.
 
 **The plan**
 - A pure, deterministic **wedding compiler** checks activities against confirmed facts (music cutoff, photographer coverage, makeup readiness…) and ranks options. Typed vendor terms stay *conditional* until the vendor confirms them.
@@ -105,6 +105,7 @@ gh secret set OPS_SECRET                                    # heartbeat workflow
 | `CALLS_WEBHOOK_SECRET` (32+ chars) | Per-call webhook tokens, dictation drafts |
 | `FLAGSMITH_SERVER_KEY`, `FLAGSMITH_ADMIN_API_KEY` | Flag evaluation; admin key for setup and recovery |
 | `FIRECRAWL_API_KEY` | Agent web search + page reading |
+| `WEDDING_REALTIME_SECRET` | Optional server secret of at least 32 characters for rotating realtime topics independently. |
 | `NUDGEBEE_API_KEY`, `NUDGEBEE_ACCOUNT_ID` | API-based ops events and cluster selection |
 | `CALL_RESULT_PROCESSOR`, `NUDGEBEE_EVENT_WEBHOOK_URL` | Azure result worker mode and incident workflow |
 | `OPS_SECRET` | Heartbeat, replay and recovery endpoints |
@@ -112,8 +113,8 @@ gh secret set OPS_SECRET                                    # heartbeat workflow
 ## Security model
 
 - The browser never sees a server key. Every API route verifies Telegram `initData` (HMAC) on the server. The bot webhook checks Telegram's secret header, and each Sarvam callback carries a per-call HMAC token.
-- RLS is on for every table with no anon policies. Budgets are couple-only, and household-private notes are filtered on the server and checked again before the agent sends anything.
-- Web pages the agent reads are treated as data, never as instructions. Search queries never include names, phone numbers or budgets.
+- RLS is on for every table with no anon policies. Budgets are couple-only, and household-private notes are loaded only into that household's direct-chat context. The shared activity feed contains status and delivery counts.
+- A public search sends only the terms explicitly entered after `/search` to the provider. Enter public terms only. Search runs receive no wedding data or chat history, and Firecrawl page reads are limited to results from the same search.
 
 ## Repo layout
 

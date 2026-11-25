@@ -115,6 +115,8 @@ describe("request validation", () => {
   it("approve: needs a revision number and a proposal id", () => {
     expect(parseApproveInput(ok)).toEqual({ ok: true, value: { weddingId: undefined, revision: 3, proposalId: "dance@9:40 pm" } });
     expect(parseApproveInput({ proposalId: "x" })).toEqual({ ok: false, error: "bad_revision" });
+    expect(parseApproveInput({ ...ok, revision: 2_147_483_648 })).toEqual({ ok: false, error: "bad_revision" });
+    expect(parseRespondInput({ ...ok, stance: "agree", note: "a\u0000b" })).toEqual({ ok: false, error: "bad_note" });
     expect(parseApproveInput(null)).toEqual({ ok: false, error: "bad_body" });
     expect(parseApproveInput({ ...ok, weddingId: 5 })).toEqual({ ok: false, error: "bad_wedding" });
   });

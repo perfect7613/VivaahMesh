@@ -1,7 +1,7 @@
 // Creates (or reuses) the VivaahMesh Flagsmith project: environments, every control-plane flag
 // from the PRD, segments and segment overrides. Writes the server-side key into .env.local.
 // Usage (from web/): FLAGSMITH_ADMIN_API_KEY=... node scripts/flagsmith-setup.mjs
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 
 const API = "https://api.flagsmith.com/api/v1";
 const KEY = process.env.FLAGSMITH_ADMIN_API_KEY;
@@ -9,10 +9,14 @@ if (!KEY) throw new Error("FLAGSMITH_ADMIN_API_KEY missing");
 const H = { Authorization: `Api-Key ${KEY}`, "content-type": "application/json" };
 
 async function api(method, path, body) {
-  const res = await fetch(API + path, { method, headers: H, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(API + path, { method, redirect: "error", signal: AbortSignal.timeout(15000), headers: H, body: body ? JSON.stringify(body) : undefined });
   const text = await res.text();
   let json; try { json = JSON.parse(text); } catch { json = text; }
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status} ${text.slice(0, 300)}`);
+  if (!res.ok) {
+    const err = new Error(`Flagsmith rejected ${method} (HTTP ${res.status})`);
+    err.duplicate = (res.status === 400 || res.status === 409) && /already|exists|unique/i.test(text);
+    throw err;
+  }
   return json;
 }
 const list = (x) => (Array.isArray(x) ? x : x.results ?? []);
@@ -106,7 +110,7 @@ for (const [name, conds, overrides] of SEGMENTS) {
         });
       } catch (e) {
         // Re-runs hit "override already exists": safe to ignore.
-        if (!/already|exists|unique/i.test(String(e.message))) console.warn(`override ${name}/${feature} in ${env.name}: ${e.message}`);
+        if (!e.duplicate) throw e;
       }
     }
   }
@@ -122,5 +126,6 @@ for (const [name, env] of Object.entries(envs)) {
 }
 let dotenv = readFileSync(".env.local", "utf8").replace(/^FLAGSMITH_(SERVER_KEY|SERVER_KEY_PRODUCTION)=.*\n?/gm, "");
 dotenv += `FLAGSMITH_SERVER_KEY=${serverKeys.Development}\nFLAGSMITH_SERVER_KEY_PRODUCTION=${serverKeys.Production}\n`;
+chmodSync(".env.local", 0o600);
 writeFileSync(".env.local", dotenv);
 console.log("wrote FLAGSMITH_SERVER_KEY (dev) and FLAGSMITH_SERVER_KEY_PRODUCTION to .env.local");

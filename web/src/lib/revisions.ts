@@ -139,8 +139,8 @@ function common(body: unknown): Parsed<{ weddingId?: string; revision: number; p
   if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, error: "bad_body" };
   const b = body as Record<string, unknown>;
   if (b.weddingId !== undefined && typeof b.weddingId !== "string") return { ok: false, error: "bad_wedding" };
-  if (typeof b.revision !== "number" || !Number.isInteger(b.revision) || b.revision < 1) return { ok: false, error: "bad_revision" };
-  if (typeof b.proposalId !== "string" || !b.proposalId.trim() || b.proposalId.length > 120) return { ok: false, error: "bad_proposal" };
+  if (typeof b.revision !== "number" || !Number.isInteger(b.revision) || b.revision < 1 || b.revision > 2_147_483_647) return { ok: false, error: "bad_revision" };
+  if (typeof b.proposalId !== "string" || !b.proposalId.trim() || b.proposalId.length > 120 || /[\u0000\uD800-\uDFFF]/u.test(b.proposalId)) return { ok: false, error: "bad_proposal" };
   return { ok: true, value: { weddingId: b.weddingId as string | undefined, revision: b.revision, proposalId: b.proposalId, b } };
 }
 
@@ -157,7 +157,10 @@ export function parseRespondInput(body: unknown): Parsed<RespondInput> {
   if (!c.ok) return c;
   const { b, ...rest } = c.value;
   if (typeof b.stance !== "string" || !STANCES.includes(b.stance as Stance)) return { ok: false, error: "bad_stance" };
-  const note = typeof b.note === "string" ? b.note.trim().slice(0, 300) : "";
+  if (b.note != null && (typeof b.note !== "string" || /[\u0000\uD800-\uDFFF]/u.test(b.note))) {
+    return { ok: false, error: "bad_note" };
+  }
+  const note = (b.note ?? "").trim().slice(0, 300).replace(/[\uD800-\uDFFF]$/u, "");
   return { ok: true, value: { ...rest, stance: b.stance as Stance, note } };
 }
 

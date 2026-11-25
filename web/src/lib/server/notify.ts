@@ -12,28 +12,31 @@ const joinedCopy: Record<BaseLang, (name: string, family: string) => string> = {
 const openCopy: Record<BaseLang, string> = { en: "Open our wedding", hi: "हमारी शादी खोलें", mr: "आमचं लग्न उघडा" };
 
 /** Tell every other Telegram member of the wedding about a change, each in their own language. */
-export async function notifyWedding(weddingId: string, actorMemberId: string, kind: "joined") {
+export async function notifyWedding(weddingId: string, actorMemberId: string) {
   const s = db();
-  const { data: members } = await s
-    .from("members")
-    .select("id, tg_user_id, display_name, language, household:households(name)")
-    .eq("wedding_id", weddingId);
-  if (!members) return;
-  const actor = members.find((m) => m.id === actorMemberId);
-  if (!actor) return;
+  const [{ data: actor }, { data: recipients }] = await Promise.all([
+    s.from("members").select("display_name, household:households(name)")
+      .eq("wedding_id", weddingId).eq("id", actorMemberId).maybeSingle(),
+    s.from("members").select("tg_user_id, language").eq("wedding_id", weddingId)
+      .neq("id", actorMemberId).not("tg_user_id", "is", null).order("created_at").limit(1000),
+  ]);
+  if (!actor || !recipients) return;
   const family = (actor.household as unknown as { name: string } | null)?.name ?? "";
-  await Promise.allSettled(
-    members
-      .filter((m) => m.id !== actorMemberId && m.tg_user_id)
-      .map((m) => {
-        const lang = pickLang(m.language);
-        if (kind === "joined") {
-          const n = escapeHtml(actor.display_name), f = escapeHtml(family);
-          return Promise.all([
-            localized({ en: joinedCopy.en(n, f), hi: joinedCopy.hi(n, f), mr: joinedCopy.mr(n, f) }, lang),
-            localized(openCopy, lang),
-          ]).then(([text, cta]) => sendWithApp(Number(m.tg_user_id), text, cta, `/tg?wedding=${weddingId}`));
-        }
-      }),
-  );
+  const name = escapeHtml(actor.display_name);
+  const familyName = escapeHtml(family);
+  const text = { en: joinedCopy.en(name, familyName), hi: joinedCopy.hi(name, familyName), mr: joinedCopy.mr(name, familyName) };
+  const localizedByLanguage = new Map<string, Promise<[string, string]>>();
+  const batchSize = 10;
+  for (let start = 0; start < recipients.length; start += batchSize) {
+    await Promise.allSettled(recipients.slice(start, start + batchSize).map(async (member) => {
+      const lang = pickLang(member.language);
+      let copy = localizedByLanguage.get(lang);
+      if (!copy) {
+        copy = Promise.all([localized(text, lang), localized(openCopy, lang)]);
+        localizedByLanguage.set(lang, copy);
+      }
+      const [message, button] = await copy;
+      await sendWithApp(Number(member.tg_user_id), message, button, `/tg?wedding=${weddingId}`);
+    }));
+  }
 }

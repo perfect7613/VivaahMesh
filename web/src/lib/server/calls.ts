@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { db } from "./supabase";
 import { reportResultIncidents } from "./result-incidents";
 import { flagsForMember, killSwitch } from "./flags";
-import { HttpError, logEvent, memberships } from "./weddings";
+import { canManageWedding, HttpError, logEvent, memberships, pingWedding } from "./weddings";
 import { appUrl, escapeHtml, sendWithApp } from "./telegram-bot";
 import { runAgent } from "./agent";
 import { reportEvent, resolveEvent } from "./nudgebee";
@@ -11,6 +11,7 @@ import { base, pickLang, type BaseLang } from "@/lib/i18n";
 import { localized } from "./translate";
 import { venueEvidence, venueFollowUpCount } from "@/lib/venue-evidence";
 import { fetchSarvamTranscript } from "./sarvam-browser";
+import { takeVoiceRequest } from "./voice-request";
 type TranscriptTurn = Awaited<ReturnType<typeof fetchSarvamTranscript>>[number];
 
 /**
@@ -85,9 +86,9 @@ export function browserCallDetails(prompt: string | null | undefined) {
 }
 
 export async function requireAuthorizer(tgUserId: number, weddingId?: string) {
-  const me = (await memberships(tgUserId)).find((m) => !weddingId || m.wedding_id === weddingId);
+  const me = (await memberships(tgUserId)).find((m) => weddingId === undefined || m.wedding_id === weddingId);
   if (!me) throw new HttpError(403, "not_a_member");
-  if (!me.is_couple && me.role !== "parent") throw new HttpError(403, "parents_or_couple_only");
+  if (!canManageWedding(me)) throw new HttpError(403, "parents_or_couple_only");
   return me;
 }
 
@@ -106,6 +107,8 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
     .limit(1)
     .maybeSingle();
   const browser = browserEnabled ? browserCallDetails(variant) : null;
+  const lastCall = last.data;
+  if (lastCall?.error && lastCall.error !== "outbound_dialing_disabled") lastCall.error = "sarvam_call_failed";
   return {
     browserRecipient: browser?.recipientName,
     recipient: venue
@@ -119,11 +122,11 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
     browserEnabled,
     configured: (!!sarvamConfig() && !!venue) || rehearsal(),
     rehearsal: !sarvamConfig() && rehearsal(),
-    lastCall: last.data,
+    lastCall,
   };
 }
 
-export async function authorizeCall(tgUserId: number, weddingId?: string) {
+export async function authorizeCall(tgUserId: number, weddingId?: string, rehearsalOnly = false) {
   const me = await requireAuthorizer(tgUserId, weddingId);
   const cfg = sarvamConfig();
   const isRehearsal = !cfg && rehearsal();
@@ -136,6 +139,15 @@ export async function authorizeCall(tgUserId: number, weddingId?: string) {
   }
   const variant = flags.features.caller_prompt.value || "baseline";
   const dialing = await killSwitch("outbound_dialing_enabled");
+  if (dialing && rehearsalOnly && !isRehearsal) throw new HttpError(409, "rehearsal_required");
+  if (dialing) {
+    if (!isRehearsal && !secret()) throw new HttpError(503, "calling_not_configured");
+    await takeVoiceRequest(me.wedding_id, "phone-call");
+    if (!isRehearsal) {
+      const destination = createHmac("sha256", secret()).update(`phone-destination:${venue.phone.replace(/\D/g, "")}`).digest("hex");
+      await takeVoiceRequest(destination, "phone-destination");
+    }
+  }
   const s = db();
 
   const { data: wedding } = await s.from("weddings").select("partner_a, partner_b").eq("id", me.wedding_id).single();
@@ -174,6 +186,9 @@ export async function authorizeCall(tgUserId: number, weddingId?: string) {
   const res = await fetch(`https://apps.sarvam.ai/api/outbounds/v1/orgs/${cfg!.org}/workspaces/${cfg!.workspace}/outbounds`, {
     method: "POST",
     headers: { "X-API-Key": cfg!.key!, "content-type": "application/json" },
+    cache: "no-store",
+    redirect: "error",
+    signal: AbortSignal.timeout(15_000),
     body: JSON.stringify({
       app_config: {
         app_id: cfg!.app,
@@ -193,13 +208,18 @@ export async function authorizeCall(tgUserId: number, weddingId?: string) {
         metadata: { call_id: call.id, wedding_id: me.wedding_id },
       },
     }),
-  });
-  const body = (await res.json().catch(() => ({}))) as { attempt_id?: string; detail?: unknown };
-  const update = res.ok && body.attempt_id
-    ? { provider_attempt_id: body.attempt_id }
-    : { status: "failed", error: `sarvam ${res.status}: ${JSON.stringify(body.detail ?? body).slice(0, 300)}` };
-  const { data: updated } = await s.from("calls").update(update).eq("id", call.id).select("*").single();
-  await logEvent(me.wedding_id, me.id, res.ok ? "call_dialing" : "call_failed", { call_id: call.id, caller_prompt: variant, attempt_id: body.attempt_id });
+  }).catch(() => null);
+  const body = await res?.json().catch(() => null) as { attempt_id?: unknown } | null | undefined;
+  const attemptId = typeof body?.attempt_id === "string" && body.attempt_id.length <= 256 ? body.attempt_id : null;
+  const submitted = res?.ok && !!attemptId;
+  const update = submitted
+    ? { provider_attempt_id: attemptId }
+    : { status: "failed", error: "sarvam_call_unavailable" };
+  // A provider callback can arrive before the outbound request returns.
+  const { data: updated, error: updateError } = await s.from("calls").update(update)
+    .eq("id", call.id).is("result", null).select("*").maybeSingle();
+  if (updateError) throw updateError;
+  await logEvent(me.wedding_id, me.id, submitted ? "call_dialing" : "call_failed", { call_id: call.id, caller_prompt: variant });
   return updated ?? call;
 }
 
@@ -214,12 +234,14 @@ interface SarvamWebhook {
   failure_reason?: string;
 }
 
-/** Step 1 of the result path: persist verbatim, idempotently. Processing is a separate step. */
+/** Step 1 of the result path: persist evidence idempotently. Processing is a separate step. */
 export async function storeCallResult(callId: string, payload: SarvamWebhook) {
   const s = db();
-  const { data: call } = await s.from("calls").select("*").eq("id", callId).maybeSingle();
+  const { data: call, error: lookupError } = await s.from("calls").select("*").eq("id", callId).maybeSingle();
+  if (lookupError) throw lookupError;
   if (!call) throw new HttpError(404, "unknown_call");
-  if (typeof payload.attempt_id !== "string" || !payload.attempt_id ||
+  if (call.browser_consent_hash) throw new HttpError(409, "call_result_mismatch");
+  if (typeof payload.attempt_id !== "string" || !payload.attempt_id || payload.attempt_id.length > 256 ||
     (call.provider_attempt_id && call.provider_attempt_id !== payload.attempt_id) ||
     !["connected", "no_answer", "busy", "failed"].includes(payload.status ?? "")) {
     throw new HttpError(409, "call_result_mismatch");
@@ -229,13 +251,21 @@ export async function storeCallResult(callId: string, payload: SarvamWebhook) {
   const status = payload.status === "connected" ? "completed" : payload.status === "no_answer" || payload.status === "busy" ? "no_answer" : "failed";
   const { data: stored, error } = await s
     .from("calls")
-    .update({ result: payload, result_received_at: new Date().toISOString(), status, error: payload.failure_reason ?? null, provider_attempt_id: call.provider_attempt_id ?? payload.attempt_id ?? null })
+    .update({ result: payload, result_received_at: new Date().toISOString(), status, error: status === "failed" ? "sarvam_call_failed" : null, provider_attempt_id: call.provider_attempt_id ?? payload.attempt_id ?? null })
     .eq("id", callId)
+    .in("status", ["dialing", "failed"])
     .is("result", null)
     .select("*")
     .maybeSingle();
   if (error) throw error;
-  if (!stored) return { call, duplicate: true };
+  if (!stored) {
+    const { data: current, error: currentError } = await s.from("calls").select("*").eq("id", callId).maybeSingle();
+    if (currentError) throw currentError;
+    if (!current?.result || current.provider_attempt_id !== payload.attempt_id) {
+      throw new HttpError(409, "call_result_mismatch");
+    }
+    return { call: current, duplicate: true };
+  }
   await logEvent(call.wedding_id, null, "call_result_stored", { call_id: callId, status });
   return { call: stored, duplicate: !!call.result };
 }
@@ -341,14 +371,14 @@ async function applyCallResult(callId: string): Promise<"applied" | "already" | 
   if (applyError) throw applyError;
   if (outcome === "already" || outcome === "superseded") return outcome;
   if (outcome !== "applied") throw new Error("Unexpected call evidence outcome");
+  await pingWedding(call.wedding_id);
   const latest = facts.at(-1);
   let told = false;
   try {
     const result = await runAgent(call.wedding_id, "call_result");
-    told = result.status === "done" && result.actions.some((action) =>
-      action.tool === "send_message" && String(action.result).startsWith("sent"));
-  } catch (error) {
-    console.error("agent after call result failed", error);
+    told = result.status === "done" && result.actions.some((action) => action.tool === "send_message");
+  } catch {
+    console.error("Family update after a call failed.");
   }
   if (!told) await notifyCallResult(call.wedding_id, latest?.value ?? null, latest?.status === "confirmed");
   return "applied";

@@ -18,6 +18,7 @@ const text = {
     question: (artist: string, time: string) => `${artist}, can you finish makeup by ${time}?`,
     yes: "Yes, I can finish by then", no: "No, I can’t finish by then",
     reply: "Your reply", start: "Record a voice reply", stop: "Finish recording",
+    recordingNotice: "Sarvam transcribes your recording. Both families can read the reply you send.",
     opening: "Opening the microphone…", recording: "Recording · up to 30 seconds",
     transcribing: "Transcribing your reply…", saving: "Saving your reply…",
     voice: "Review the transcript. It will be shared with both families as a voice reply. Editing it changes the source to typed.",
@@ -35,6 +36,7 @@ const text = {
     question: (artist: string, time: string) => `${artist}, क्या आप ${time} तक मेकअप पूरा कर सकती हैं?`,
     yes: "हाँ, मैं तब तक पूरा कर सकती हूँ", no: "नहीं, मैं तब तक पूरा नहीं कर सकती",
     reply: "आपका जवाब", start: "बोलकर जवाब रिकॉर्ड करें", stop: "रिकॉर्डिंग पूरी करें",
+    recordingNotice: "Sarvam आपकी रिकॉर्डिंग को टेक्स्ट में बदलता है। दोनों परिवार आपका भेजा हुआ जवाब पढ़ सकते हैं।",
     opening: "माइक्रोफ़ोन खुल रहा है…", recording: "रिकॉर्डिंग चल रही है · 30 सेकंड तक",
     transcribing: "आपका जवाब लिख रहे हैं…", saving: "जवाब सेव हो रहा है…",
     voice: "लिखा हुआ जवाब जाँचें। दोनों परिवार इसे आवाज़ से दिया गया जवाब देखेंगे। बदलाव करने पर यह लिखा हुआ जवाब माना जाएगा।",
@@ -52,6 +54,7 @@ const text = {
     question: (artist: string, time: string) => `${artist}, तुम्ही ${time} पर्यंत मेकअप पूर्ण करू शकता का?`,
     yes: "हो, मी त्या वेळेपर्यंत पूर्ण करू शकते", no: "नाही, मी त्या वेळेपर्यंत पूर्ण करू शकत नाही",
     reply: "तुमचे उत्तर", start: "आवाजात उत्तर रेकॉर्ड करा", stop: "रेकॉर्डिंग पूर्ण करा",
+    recordingNotice: "Sarvam तुमच्या रेकॉर्डिंगचे रूपांतर मजकुरात करते. तुम्ही पाठवलेले उत्तर दोन्ही कुटुंबांना वाचता येते.",
     opening: "मायक्रोफोन सुरू होत आहे…", recording: "रेकॉर्डिंग सुरू आहे · ३० सेकंदांपर्यंत",
     transcribing: "तुमचे उत्तर लिहून घेत आहोत…", saving: "तुमचे उत्तर जतन होत आहे…",
     voice: "लिहून घेतलेले उत्तर तपासा. दोन्ही कुटुंबांना ते आवाजात दिलेले उत्तर म्हणून दिसेल. बदल केल्यास ते लिहिलेले उत्तर म्हणून नोंदले जाईल.",
@@ -214,11 +217,12 @@ export function MakeupReply({ token }: { token: string }) {
               ))}
             </fieldset>
             <button
-              type="button" className={button} disabled={phase !== null && phase !== "recording"}
+              type="button" className={button} disabled={phase !== null && phase !== "recording"} aria-describedby="makeup-recording-notice"
               onClick={() => phase === "recording" ? recording.current?.stop() : void record()}
             >
               {phase === "recording" ? t.stop : t.start}
             </button>
+            <p id="makeup-recording-notice" className="text-sm">{t.recordingNotice}</p>
             {phase && phase !== "saving" ? <p role="status">{t[phase]}</p> : null}
             <label className="block space-y-1.5">
               <span className="font-medium">{t.reply}</span>
