@@ -44,7 +44,7 @@ create table vendors (
   accepted_at timestamptz,
   paid_at timestamptz,
   run_sheet text,
-  view_token text not null unique default encode(gen_random_bytes(12), 'hex'),
+  view_token text not null unique default replace(gen_random_uuid()::text, '-', ''),
   seeded boolean not null default false,
   created_at timestamptz not null default now()
 );
@@ -57,7 +57,7 @@ create table guests (
   household_id uuid references households(id) on delete set null,
   name text not null,
   party_size int not null default 1 check (party_size between 1 and 20),
-  rsvp_token text not null unique default encode(gen_random_bytes(12), 'hex'),
+  rsvp_token text not null unique default replace(gen_random_uuid()::text, '-', ''),
   created_at timestamptz not null default now()
 );
 create table rsvps (
