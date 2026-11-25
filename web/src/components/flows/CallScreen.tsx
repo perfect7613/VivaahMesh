@@ -12,7 +12,8 @@ interface Preview {
   dialingEnabled: boolean;
   configured: boolean;
   browserEnabled: boolean;
-  lastCall: { id: string; status: string; error: string | null; processed_at: string | null } | null;
+  lastCall: { id: string; status: string; error: string | null; processed_at: string | null;
+    follow_up_count: number | null; fact: { status: string; wording: string } | null } | null;
 }
 
 /**
@@ -26,7 +27,7 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
   const [callId, setCallId] = useState<string | null>(null);
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const status = preview?.lastCall && preview.lastCall.id === callId ? preview.lastCall : null;
+  const status = preview?.lastCall && (!callId || preview.lastCall.id === callId) ? preview.lastCall : null;
   const done = status && (status.processed_at || ["no_answer", "failed", "blocked"].includes(status.status));
 
   useEffect(() => {
@@ -71,6 +72,11 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
     }
   }
 
+  const followUpCopy = {
+    en: { count: "Follow-up questions", callback: "Authorize a callback" },
+    hi: { count: "अतिरिक्त सवाल", callback: "दोबारा कॉल करने की अनुमति दें" },
+    mr: { count: "पुढील प्रश्न", callback: "पुन्हा कॉल करण्यास परवानगी द्या" },
+  }[lang];
   const browserCopy = {
     en: { authorize: "Authorize browser call", recipient: "Venue owner · browser link", share: "Share this link with the venue owner so they can consent and speak." },
     hi: { authorize: "ब्राउज़र कॉल की अनुमति दें", recipient: "वेन्यू मालिक · ब्राउज़र लिंक", share: "यह लिंक वेन्यू मालिक को भेजें ताकि वे सहमति देकर बात कर सकें।" },
@@ -148,6 +154,16 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
         ) : (
           <div className="h-48 animate-pulse rounded-3xl bg-card" />
         )}
+
+        {status?.processed_at && status.follow_up_count !== null ? (
+          <p className="mt-4 text-sm text-muted">{followUpCopy.count} · {status.follow_up_count}</p>
+        ) : null}
+        {status?.processed_at && status.fact?.status === "unresolved" && (preview?.configured || preview?.browserEnabled) ? (
+          <button type="button" disabled={busy} onClick={() => { void authorize(); }}
+            className="pressable mt-4 min-h-11 rounded-xl border border-line bg-card px-4 py-2">
+            {followUpCopy.callback}
+          </button>
+        ) : null}
 
         <FallbackButton text={callId ? t.backToPlan : authorizeLabel} onClick={callId ? onClose : authorize} enabled={callId ? true : canAuthorize} loading={busy} />
       </main>
