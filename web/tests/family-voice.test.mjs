@@ -1,7 +1,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { demoSangeet } from "../src/lib/compiler/fixtures/demo-sangeet.ts";
-import { applyFamilyRequirements, approvedRecapText, planTime, requirementLabel } from "../src/lib/family-plan.ts";
+import { applyFamilyRequirements, approvedRecapText, dictatedDinnerTime, planTime, requirementLabel } from "../src/lib/family-plan.ts";
 
 test("reviewed duration and dinner apply by canonical function and preserve other events", () => {
   const requirements = [
@@ -18,4 +18,12 @@ test("reviewed duration and dinner apply by canonical function and preserve othe
     assert.ok(approvedRecapText([dance], lang).includes(planTime(dance.end, lang)));
   }
   assert.equal(demoSangeet.activities.find((activity) => activity.kind === "dance").end, 1325);
+});
+
+test("Dictate suggestions accept only an explicit 24-hour dinner time", () => {
+  assert.equal(dictatedDinnerTime('{"dinner_time":"20:30"}'), "20:30");
+  assert.equal(dictatedDinnerTime('{"dinner_time":null}'), null);
+  assert.equal(dictatedDinnerTime('{"dinner_time":"8:30 PM"}'), null);
+  assert.equal(dictatedDinnerTime('{"dinner_time":"24:00"}'), null);
+  assert.equal(dictatedDinnerTime("not json"), null);
 });
