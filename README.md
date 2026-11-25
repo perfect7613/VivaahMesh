@@ -184,7 +184,24 @@ stateDiagram-v2
 
 ## Sponsors
 
-### Sarvam AI
+Each of the three sponsors does a job MahiWay can't work without:
+
+| | Job in MahiWay | Without it |
+|---|---|---|
+| **Sarvam AI** | Hears, speaks and thinks in the families' languages: the agent's brain, every voice note, every translated screen, the venue call | Aai's Marathi voice note is just audio, and the venue never gets asked |
+| **Flagsmith** | Holds the rules: how the plan is ranked, which screens are open at each stage, and the switches that stop calls in seconds | Every rule change is a redeploy, and nothing can be stopped quickly |
+| **NudgeBee** | Watches the call pipeline and brings a person in before stuck results are replayed | A stuck result silently leaves both families on an old plan |
+
+### Sarvam AI: the voice and brain of the wedding
+
+One Sarvam key covers five models, and together they give MahiWay a full speech-and-language stack for Indian families:
+
+- **GLM-5.3 on the Token Factory** runs the always-on agent with real tool calling: it reads family groups, saves notes under the right person's name, answers questions and decides who to nudge. It also translates the whole interface into the 19 languages we don't hand-write.
+- **Saaras v4** turns a 30-second voice note in Marathi, Hindi or Hinglish into text, so elders can speak instead of type.
+- **Sarvam Translate** sends every bot and agent message in the reader's own language: 22 scheduled Indian languages plus English.
+- **Samvaad** is a voice agent that phones the venue, asks one precise question, and returns structured answers (`music_cutoff`, `confirmed`, `vendor_wording`) that go straight into the plan as evidence.
+- **Bulbul** reads the approved plan aloud, and **Dictate** lets a household speak its requirements.
+
 | Use | API |
 |---|---|
 | Always-on agent, tool calling, translation of the whole UI | Token Factory `POST /v2/chat/completions`, model `glm5.3-flash` (switchable to `glm5.3` from Flagsmith) |
@@ -193,7 +210,15 @@ stateDiagram-v2
 | Venue call | Samvaad voice agent, outbound API + webhook (prompt and variables: [`docs/samvaad-agent.md`](docs/samvaad-agent.md)) |
 | Household dictation, spoken recap | Dictate, Bulbul |
 
-### Flagsmith: the control plane (project `VivaahMesh`, Development + Production)
+### Flagsmith: the control plane (project `MahiWay`, Development + Production)
+
+MahiWay uses Flagsmith as the wedding's rulebook, beyond simple on/off flags:
+
+- **Remote config drives the compiler.** `compiler_policy` is a versioned JSON policy that decides how options are ranked. Change it in the dashboard and the next plan uses it, with no deploy. Every revision records the policy version it was built with, so an approval always shows which rules produced it.
+- **Kill switches with safe defaults.** One toggle stops every outbound call; another holds call results without losing them. If Flagsmith can't be reached, the app fails safe: dialing off.
+- **Segments and identities.** Marathi speakers get the Bulbul recap, one household gets a feature first, and each wedding's stage (brief → closeout) unlocks screens through `stage_*` segments. Shared decisions use one wedding-level identity, so both families always see the same rules.
+- **Experiments.** `caller_prompt` A/B tests how the voice agent asks the venue, bucketed per call, with metrics ready for Flagsmith experiments.
+- **Live model switching.** `agent_model` swaps the GLM model mid-event.
 | Flag | What it controls |
 |---|---|
 | `compiler_policy` (JSON) | Ranking strategy (`preserve_family_priorities` / `minimize_changes` / `lowest_confirmed_cost`), buffers, max options, dance during dinner. Every revision and approval stores the policy version it used |
@@ -216,6 +241,9 @@ Live exposures use a pinned call identity and are recorded when Sarvam accepts a
 Create everything with `node web/scripts/flagsmith-setup.mjs`. Flip a flag live with `node web/scripts/flag.mjs <flag> on|off|key=value`.
 
 ### NudgeBee: incident and approval-gated recovery
+
+NudgeBee keeps the one part of MahiWay that talks to the outside world honest. When a venue answer gets stuck, the app raises a NudgeBee event, and the `vivaahmesh-call-result-recovery` workflow does a dry run, waits for a person to approve, and then recovers: it turns the Flagsmith pause off and replays the held results. Nothing reaches the plan without that approval, and every step is visible in NudgeBee's executions log. Agent failures are reported as NudgeBee events too.
+
 The Azure worker leases saved vendor answers from Postgres. A stopped worker leaves answers available for recovery. An independent NudgeBee scan reports overdue results, keyed by the provider result ID, and requests an investigation. Human approval turns off the Flagsmith pause switch, restores the worker and replays the identified call. Both households read the resulting plan revision. [Azure worker setup](docs/result-worker.md) · [NudgeBee workflows and rehearsal](docs/nudgebee-workflows.md)
 
 Existing inline deployments can keep their API-key incident reporting, agent-failure alerts and approved recovery endpoint. The Azure workflows use a separate integration webhook.
