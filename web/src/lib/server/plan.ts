@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "./supabase";
 import { HttpError, logEvent, memberships } from "./weddings";
-import { flagsFor } from "./flags";
+import { flagsForMember } from "./flags";
 import { compile, withConfirmedTimes } from "@/lib/compiler/compile";
 import { demoSangeet } from "@/lib/compiler/fixtures/demo-sangeet";
 import { activityFromRow, activityToRow, liveFactIds, type ActivityRow, type FactInput } from "@/lib/plan-input";
@@ -39,25 +39,6 @@ export async function loadSnapshot(weddingId: string): Promise<Snapshot | null> 
   return { weddingId, revision: facts.length, activities, facts };
 }
 
-type Member = Awaited<ReturnType<typeof memberships>>[number];
-
-async function viewerFlags(me: Member) {
-  const s = db();
-  const [w, h] = await Promise.all([
-    s.from("weddings").select("stage").eq("id", me.wedding_id).single(),
-    s.from("households").select("side").eq("id", me.household_id).maybeSingle(),
-  ]);
-  return flagsFor({
-    weddingId: me.wedding_id,
-    memberId: me.id,
-    language: me.language,
-    householdSide: (h.data?.side ?? null) as "A" | "B" | null,
-    role: me.role,
-    isCouple: me.is_couple,
-    weddingStage: w.data?.stage ?? "brief",
-  });
-}
-
 /**
  * Vendor terms. Only the vendor can confirm these (a call or a quote). A family member typing
  * one is recorded as conditional ("Aai heard 10 pm") and never replaces the vendor's answer.
@@ -85,7 +66,7 @@ export async function planView(tgUserId: number, weddingId?: string, policyOverr
   const snap = await loadSnapshot(me.wedding_id);
   if (!snap) return null;
   // Flagsmith decides how options are ranked (compiler_policy remote config), per viewer.
-  const flags = policyOverride ? null : await viewerFlags(me);
+  const flags = policyOverride ? null : await flagsForMember(me);
   const policy = policyOverride ?? flags?.policy ?? DEFAULT_POLICY;
   return {
     policy: { version: policy.version, strategy: policy.strategy, source: flags?.source ?? "override" },

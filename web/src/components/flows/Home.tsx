@@ -6,6 +6,7 @@ import { Chip, FallbackButton, Field, Petals, PrivacySwitch, inputClass, formatI
 import { TelegramIcon, WhatsAppIcon } from "@/components/landing/BrandIcons";
 import { InvitationCard } from "./InvitationCard";
 import { PlanCard } from "./PlanCard";
+import { CallScreen } from "./CallScreen";
 import { inviteLink, shareInvite } from "./shared";
 import type { View } from "./types";
 
@@ -23,6 +24,7 @@ export function Home({ view, setView, botUsername, celebrate }: { view: View; se
   const t = dict[lang];
   const on = view.flags.on;
   const [adding, setAdding] = useState(false);
+  const [calling, setCalling] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const couple = `${view.wedding.partnerA} & ${view.wedding.partnerB}`;
   const myHousehold = view.households.find((h) => h.id === view.me.householdId);
@@ -49,6 +51,7 @@ export function Home({ view, setView, botUsername, celebrate }: { view: View; se
   }
   if (view.me.isCouple && !view.wedding.date) tasks.push({ key: "date", label: t.taskSetDate });
 
+  if (calling) return <CallScreen view={view} lang={lang} onClose={() => setCalling(false)} />;
   if (adding) {
     return <AddWish view={view} lang={lang} onClose={() => setAdding(false)} onSaved={(v) => { setView(v); setAdding(false); }} />;
   }
@@ -155,7 +158,7 @@ export function Home({ view, setView, botUsername, celebrate }: { view: View; se
           </Section>
 
           <Section title={t.planCheck} tone="sindoor">
-            <PlanCard view={view} lang={lang} />
+            <PlanCard view={view} lang={lang} onCallVenue={() => setCalling(true)} />
           </Section>
 
           {on.home_team_section ? (

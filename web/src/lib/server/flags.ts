@@ -1,5 +1,6 @@
 import "server-only";
 import { DefaultFlag, Flagsmith } from "flagsmith-nodejs";
+import { db } from "./supabase";
 import { DEFAULT_POLICY, type CompilerPolicy } from "@/lib/compiler/types";
 
 /**
@@ -96,3 +97,37 @@ export async function flagsFor(t: ViewerTraits): Promise<ResolvedFlags> {
   }
   return { source, features, policy };
 }
+
+/**
+ * Environment-wide switches (no identity): the operational kill switches that NudgeBee and the
+ * on-call person flip for everyone at once. Unreachable Flagsmith → the safe default.
+ */
+export async function killSwitch(name: "outbound_dialing_enabled" | "result_processing_paused"): Promise<boolean> {
+  const fs = flagsmith();
+  if (!fs) return SAFE_DEFAULTS[name].enabled;
+  try {
+    return (await fs.getEnvironmentFlags()).isFeatureEnabled(name);
+  } catch (e) {
+    console.error("flagsmith unavailable, using safe default for", name, e);
+    return SAFE_DEFAULTS[name].enabled;
+  }
+}
+
+/** Flags for a member row (wedding stage and household side are looked up). */
+export async function flagsForMember(me: { id: string; wedding_id: string; household_id: string | null; language: string; role: string; is_couple: boolean }) {
+  const s = db();
+  const [w, h] = await Promise.all([
+    s.from("weddings").select("stage").eq("id", me.wedding_id).single(),
+    s.from("households").select("side").eq("id", me.household_id).maybeSingle(),
+  ]);
+  return flagsFor({
+    weddingId: me.wedding_id,
+    memberId: me.id,
+    language: me.language,
+    householdSide: (h.data?.side ?? null) as "A" | "B" | null,
+    role: me.role,
+    isCouple: me.is_couple,
+    weddingStage: w.data?.stage ?? "brief",
+  });
+}
+

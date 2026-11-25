@@ -22,7 +22,7 @@ const POLL_MS = 5000;
  * come from the one shared compile result, only the labels are in the viewer's language.
  * (Realtime push arrives with the shared-plan slice; until then this refreshes every few seconds.)
  */
-export function PlanCard({ view, lang }: { view: View; lang: Lang }) {
+export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; onCallVenue?: () => void }) {
   const t = dict[lang];
   const [plan, setPlan] = useState<Plan | null | undefined>(undefined);
   const [seeding, setSeeding] = useState(false);
@@ -175,8 +175,17 @@ export function PlanCard({ view, lang }: { view: View; lang: Lang }) {
           <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-[0.12em] text-muted">{t.planWhoCanHelp}</h3>
           <ul className="flex flex-col gap-1.5 text-[14px]">
             {result.blocking.map((b) => (
-              <li key={`${b.constraint}|${b.whoCanResolve}`} className="rounded-xl bg-card px-3 py-2">
+              <li key={`${b.constraint}|${b.whoCanResolve}`} className="rounded-2xl border border-line bg-card px-4 py-3">
                 <span>{blockingText(b)}</span> <span className="text-muted">→ {resolverText(b.resolver)}</span>
+                {b.code === "cutoff_unconfirmed" && onCallVenue && (view.me.isCouple || view.me.role === "parent") ? (
+                  <button
+                    type="button"
+                    onClick={onCallVenue}
+                    className="pressable mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-sindoor text-[15px] font-semibold text-white shadow-[0_10px_24px_-14px_var(--sindoor)]"
+                  >
+                    📞 {t.callVenue}
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
