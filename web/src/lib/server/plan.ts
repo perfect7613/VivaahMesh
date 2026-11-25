@@ -1,6 +1,8 @@
 import "server-only";
 import { db } from "./supabase";
 import { HttpError, logEvent, memberships } from "./weddings";
+import { familyRequirements } from "./family-voice";
+import { applyFamilyRequirements } from "@/lib/family-plan";
 import { flagsForMember } from "./flags";
 import { compile, withConfirmedTimes } from "@/lib/compiler/compile";
 import { demoSangeet } from "@/lib/compiler/fixtures/demo-sangeet";
@@ -36,7 +38,9 @@ export async function loadSnapshot(weddingId: string): Promise<Snapshot | null> 
     source: { channel: r.channel, ref: r.ref, wording: r.wording },
     supersedes: r.supersedes?.length ? (r.supersedes as string[]) : undefined,
   }));
-  return { weddingId, revision: facts.length, activities, facts };
+  const requirements = await familyRequirements(weddingId);
+  const revision = requirements.reduce((value, item) => value + item.version, facts.length);
+  return applyFamilyRequirements({ weddingId, revision, activities, facts }, requirements);
 }
 
 /**

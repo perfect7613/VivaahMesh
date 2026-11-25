@@ -6,6 +6,7 @@ import { Chip, FallbackButton, Field, Petals, PrivacySwitch, inputClass, formatI
 import { TelegramIcon, WhatsAppIcon } from "@/components/landing/BrandIcons";
 import { InvitationCard } from "./InvitationCard";
 import { PlanCard } from "./PlanCard";
+import { FamilyVoice } from "./FamilyVoice";
 import { CallScreen } from "./CallScreen";
 import { inviteLink, shareInvite } from "./shared";
 import type { View } from "./types";
@@ -160,6 +161,10 @@ export function Home({ view, setView, botUsername, celebrate }: { view: View; se
           <Section title={t.planCheck} tone="sindoor">
             <PlanCard view={view} lang={lang} onCallVenue={() => setCalling(true)} />
           </Section>
+
+          {view.functions.some((fn) => fn.kind === "sangeet") ? (
+            <FamilyVoice key={`family-voice:${view.wedding.id}`} weddingId={view.wedding.id} lang={lang} />
+          ) : null}
 
           {on.home_team_section ? (
             <Section title={t.teamHandling}>
