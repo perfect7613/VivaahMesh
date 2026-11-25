@@ -2,7 +2,7 @@ import { after } from "next/server";
 import crypto from "node:crypto";
 import { botCopy, pickLang } from "@/lib/i18n";
 import { escapeHtml, send, sendWithApp, tg } from "@/lib/server/telegram-bot";
-import { runAgent } from "@/lib/server/agent";
+import { processGroup, runAgent } from "@/lib/server/agent";
 import { localized } from "@/lib/server/translate";
 import { transcribe } from "@/lib/server/sarvam";
 import { addPriorities, invitePreview, memberships } from "@/lib/server/weddings";
@@ -10,9 +10,12 @@ import { db } from "@/lib/server/supabase";
 
 interface TgMessage {
   message_id: number;
-  chat: { id: number; type: string };
-  from?: { id: number; first_name: string; language_code?: string };
+  chat: { id: number; type: string; title?: string };
+  from?: { id: number; first_name: string; last_name?: string; language_code?: string; is_bot?: boolean };
   text?: string;
+  caption?: string;
+  reply_to_message?: { from?: { id: number; is_bot?: boolean } };
+  new_chat_members?: { id: number; is_bot?: boolean }[];
   voice?: { file_id: string; duration: number };
 }
 
@@ -32,6 +35,8 @@ export async function POST(req: Request) {
   const msg = update.message;
   if (msg?.from && msg.chat.type === "private") {
     after(() => handle(msg).catch((e) => console.error("bot handler failed", e)));
+  } else if (msg?.from && (msg.chat.type === "group" || msg.chat.type === "supergroup")) {
+    after(() => handleGroup(msg).catch((e) => console.error("group handler failed", e)));
   }
   return Response.json({ ok: true });
 }
@@ -82,24 +87,26 @@ async function handle(msg: TgMessage) {
     if (transcript && id) {
       await db().from("priorities").update({ transcript: transcript.transcript, transcript_lang: transcript.languageCode }).eq("id", id);
     }
-    if (await agentReplied(me.wedding_id, "voice", me.id, note)) return;
+    if (await agentReplied(me.wedding_id, "voice", me.id, note, chatId, true)) return;
     return sendWithApp(chatId, await L((c) => c.voiceSoon), await L((c) => c.openCta), `/tg?wedding=${me.wedding_id}`);
   }
 
   if (text) {
     // Anything typed to the bot becomes a private family note. Sharing it with both families is an explicit choice in the app.
+    // The agent answers (plan questions, web search) and saves real wishes as private family notes.
+    // If it is off or fails, the message is saved as a private note and the fixed reply goes out.
     await tg("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
+    if (await agentReplied(me.wedding_id, "message", me.id, text, chatId)) return;
     await addPriorities(me, [], text, "household", "telegram");
-    if (await agentReplied(me.wedding_id, "message", me.id, text)) return;
     return sendWithApp(chatId, await L((c) => c.saved(family)), await L((c) => c.openCta), `/tg?wedding=${me.wedding_id}`);
   }
 }
 
 /** The agent answers in the sender's language. If it is switched off or fails, the fixed reply is sent instead. */
-async function agentReplied(weddingId: string, trigger: "message" | "voice", memberId: string, note: string) {
+async function agentReplied(weddingId: string, trigger: "message" | "voice", memberId: string, note: string, chatId: number, noteSaved = false) {
   try {
-    const r = await runAgent(weddingId, trigger, { senderMemberId: memberId, note });
-    return r.status === "done" && r.actions.some((a) => a.tool === "send_message" && a.audience === "sender" && String(a.result).startsWith("sent"));
+    const r = await runAgent(weddingId, trigger, { senderMemberId: memberId, note, chatId: String(chatId), noteSaved });
+    return r.status === "done" && (r.replied || r.actions.some((a) => a.tool === "send_message" && a.audience === "sender" && String(a.result).startsWith("sent")));
   } catch (e) {
     console.error("agent failed", e);
     return false;
@@ -111,4 +118,80 @@ async function downloadFile(fileId: string): Promise<ArrayBuffer> {
   const res = await fetch(`https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${f.file_path}`);
   if (!res.ok) throw new Error(`telegram file ${res.status}`);
   return res.arrayBuffer();
+}
+
+let botId: number | null = null;
+let botUser = "";
+async function me() {
+  if (!botId) {
+    const b = await tg<{ id: number; username: string }>("getMe", {});
+    botId = b.id;
+    botUser = b.username.toLowerCase();
+  }
+  return { id: botId, username: botUser };
+}
+
+/**
+ * A family's own WhatsApp-style group. The couple or a parent links it once with their family's
+ * invite code (/start link_CODE comes in automatically from the "Add to your family group" link).
+ * After that every message is kept for the agent: it reads them on the heartbeat, or at once when
+ * someone mentions the bot or replies to it. The group only ever hears about its own family's notes.
+ */
+async function handleGroup(msg: TgMessage) {
+  const chatId = msg.chat.id;
+  const bot = await me();
+  const raw = (msg.text ?? msg.caption ?? "").trim();
+  const s = db();
+
+  if (msg.new_chat_members?.some((m) => m.id === bot.id)) {
+    return send(chatId, "Namaste 🙏 I'm VivaahMesh. To connect this group to your family's plan, the couple or a parent sends:\n<code>/link FAMILYCODE</code>\n(the code is on your family's invite card in the app).");
+  }
+
+  const cmd = /^\/(start|link)(@\w+)?\s+(?:link_)?([A-Za-z0-9_-]+)/.exec(raw);
+  if (cmd) {
+    const code = cmd[3];
+    const { data: h } = await s.from("households").select("id, wedding_id, name").eq("invite_code", code).maybeSingle();
+    if (!h) return send(chatId, "That family code didn't work. Open the app and copy it from your family's invite card.");
+    const { data: m } = await s.from("members").select("id, role, is_couple, household_id").eq("wedding_id", h.wedding_id).eq("tg_user_id", msg.from!.id).maybeSingle();
+    if (!m || m.household_id !== h.id || !(m.is_couple || m.role === "parent")) {
+      return send(chatId, "Only the couple or a parent of this family can connect the group.");
+    }
+    const { error } = await s.from("channels").upsert(
+      { wedding_id: h.wedding_id, household_id: h.id, kind: "telegram_group", chat_id: String(chatId), title: msg.chat.title ?? null, linked_by: m.id },
+      { onConflict: "chat_id" },
+    );
+    if (error) throw error;
+    await s.from("events").insert({ wedding_id: h.wedding_id, actor_member_id: m.id, kind: "group_linked", payload: { family: h.name } });
+    return send(
+      chatId,
+      `✅ Connected to the ${escapeHtml(h.name)} plan.\nI'll read what the family says here and keep the plan up to date. Notes stay private to ${escapeHtml(h.name)} unless you ask me to share them.\nAsk me anything: mention @${bot.username} or reply to me.\n\n(If I can't see normal messages, make me an admin of this group.)`,
+    );
+  }
+
+  const { data: ch } = await s.from("channels").select("id, wedding_id").eq("chat_id", String(chatId)).maybeSingle();
+  if (!ch) {
+    if (raw.toLowerCase().includes(`@${bot.username}`)) return send(chatId, "This group isn't connected yet. The couple or a parent sends <code>/link FAMILYCODE</code>.");
+    return;
+  }
+  if (msg.from!.is_bot) return;
+
+  let text = raw;
+  let kind: "text" | "voice" = "text";
+  if (!text && msg.voice && msg.voice.duration <= 60) {
+    try {
+      text = (await transcribe(await downloadFile(msg.voice.file_id))).transcript;
+      kind = "voice";
+    } catch (e) {
+      console.error("group voice transcription failed", e);
+    }
+  }
+  if (!text) return;
+  const fromName = [msg.from!.first_name, msg.from!.last_name].filter(Boolean).join(" ");
+  await s.from("group_messages").insert({ channel_id: ch.id, wedding_id: ch.wedding_id, from_name: fromName, from_tg_id: msg.from!.id, text: text.slice(0, 2000), kind });
+
+  const mentioned = text.toLowerCase().includes(`@${bot.username}`) || (msg.reply_to_message?.from?.id === bot.id);
+  if (mentioned) {
+    await tg("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
+    await processGroup(ch.id, true);
+  }
 }

@@ -37,6 +37,11 @@ Ask exactly one thing: {{question}}
 If {{caller_prompt}} is "clarify_scope" and they give a time without saying whether it covers the
 whole event, ask once: "Does that apply to the whole evening?"
 
+If the hour has no AM/PM or other time-of-day context, ask once to clarify before
+normalizing the confirmed time to 24-hour HH:MM. Record scope only when the answer clearly
+applies to the Sangeet or the whole event. If the time or scope stays unclear, set confirmed
+to no. Copy the venue contact's actual words in their original language into vendor_wording.
+
 If they correct themselves ("9:30... actually make it 10"), the LAST answer wins.
 Repeat the final time back once to confirm.
 If they don't know, say the family will call back, and end politely.
@@ -67,3 +72,10 @@ OPS_SECRET=               # shared with the NudgeBee runbook for /api/calls/repl
 ```
 
 Only call people who have agreed to it. The demo calls a teammate playing the venue owner.
+
+
+## Browser rehearsal
+
+Set the Flagsmith `voice_channel` value to `browser` and enable that flag for the authorizing family member. The browser path needs the committed app version, organization and workspace IDs, and server-only workspace API key. It uses a consent link in place of phone provisioning. Set `DEMO_VENUE_NAME` to the consenting judge or teammate's role/name shown in the authorization preview.
+
+Open the venue call screen as a parent or couple member, review the question, and authorize the browser call. Share the 30-minute link with the venue contact. They choose a language, consent, and start the browser call on an HTTPS page with microphone permission. After the call, leave the results page open until the answer is saved. Sarvam Analytics can take up to a minute to refresh. Check the Sangeet on both phones for the updated recommendation and its browser-agent evidence source.

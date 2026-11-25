@@ -23,6 +23,6 @@ export const POST = authed(async (req, viewer) => {
   const out = await approveRevision(viewer.id, parsed.value);
   const plan = await planView(viewer.id, out.weddingId);
   if (out.status === "stale") return Response.json({ error: "stale", plan }, { status: 409 });
-  after(() => runAgent(out.weddingId, "manual").catch((e) => console.error("agent after approval", e)));
+  after(() => runAgent(out.weddingId, "approval").catch((e) => console.error("agent after approval", e)));
   return { plan };
 });

@@ -7,6 +7,8 @@ import { TelegramIcon, WhatsAppIcon } from "@/components/landing/BrandIcons";
 import { InvitationCard, formatDate } from "./InvitationCard";
 import { FunctionSheet } from "./FunctionSheet";
 import { PlanCard } from "./PlanCard";
+import { GuestsCard } from "./GuestsCard";
+import { canOpenStage } from "@/lib/stages";
 import { CallScreen } from "./CallScreen";
 import { AgentFeed } from "./AgentFeed";
 import { inviteLink, shareInvite } from "./shared";
@@ -155,11 +157,6 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
             ) : null}
           </Section>
 
-          {/* Issue #3: conflicts and ranked proposals from the wedding compiler. */}
-          <Section title={t.planCheck}>
-            <PlanCard view={view} lang={lang} />
-          </Section>
-
           <Section title={t.thePlan}>
             <ul className="overflow-hidden rounded-3xl border border-line bg-card">
               {view.functions.map((f, i) => {
@@ -205,9 +202,24 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
             <PlanCard view={view} lang={lang} onCallVenue={() => setCalling(true)} />
           </Section>
 
+          {/* Issue #12: RSVPs and the gift registry open once the wedding reaches the guests stage (and stage_guests is on). */}
+          {canOpenStage(view.wedding.stage, "guests", on) ? (
+            <Section title={t.guestsTitle}>
+              <GuestsCard view={view} lang={lang} />
+            </Section>
+          ) : null}
+
           {on.home_team_section ? (
             <Section title={t.teamHandling}>
-              <AgentFeed weddingId={view.wedding.id} lang={lang} />
+              <AgentFeed
+                weddingId={view.wedding.id}
+                lang={lang}
+                groupLink={(() => {
+                  // Couple or a parent: one tap adds the bot to the family's own group and links it.
+                  const mine = view.households.find((h) => h.id === view.me.householdId)?.inviteCode;
+                  return mine && botUsername && (view.me.isCouple || view.me.role === "parent") ? `https://t.me/${botUsername}?startgroup=link_${mine}` : null;
+                })()}
+              />
             </Section>
           ) : null}
 
