@@ -9,6 +9,7 @@ interface Preview {
   recipient: { name: string; phone: string; language: string; role: string } | null;
   purpose: string;
   callerPrompt: string;
+  previewToken: string;
   dialingEnabled: boolean;
   configured: boolean;
   browserEnabled: boolean;
@@ -60,7 +61,7 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
       if (preview?.browserEnabled) {
         const { callId, url } = await api<{ callId: string; url: string }>("/api/calls/browser-invite", {
           body: {
-            weddingId: view.wedding.id, authorize: true,
+            weddingId: view.wedding.id, authorize: true, previewToken: preview.previewToken,
             recipientName: preview.browserRecipient, purpose: preview.purpose, callerPrompt: preview.callerPrompt,
           },
         });
@@ -69,14 +70,14 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
         haptic.tap();
         return;
       }
-      const { call } = await api<{ call: { id: string; status: string } }>("/api/calls", { body: { weddingId: view.wedding.id } });
+      const { call } = await api<{ call: { id: string; status: string } }>("/api/calls", { body: { weddingId: view.wedding.id, previewToken: preview?.previewToken } });
       setBrowserUrl(null);
       setCallId(call.id);
       haptic.tap();
     } catch (e) {
       const message = (e as Error).message;
       setError(message);
-      if (message === "browser_preview_changed" || message === "browser_mode_disabled") {
+      if (message === "browser_preview_changed" || message === "browser_mode_disabled" || message === "call_already_authorized") {
         const current = await api<Preview>(`/api/calls?wedding=${view.wedding.id}`).catch(() => null);
         if (current) setPreview(current);
       }

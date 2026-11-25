@@ -66,6 +66,10 @@ Segments: `marathi_speakers` (language = mr → Bulbul recap), `household_a` (co
 
 Caller-prompt experiment (5 scripted scenarios × 2 variants, observed counts, not a statistical claim): [`docs/caller-experiment.md`](docs/caller-experiment.md), reproduce with `cd web && npm run experiment`.
 
+To publish the ten scripted calls, use a dedicated Flagsmith replay environment with an events integration and a running `caller_prompt` experiment. Give both options distinct variation keys and values (`baseline` and `clarify_scope`), including the baseline in an existing project. Define numeric metrics on `caller_facts_confirmed`, `caller_follow_up_count` and `caller_unsupported_changes`. With its environment key in `FLAGSMITH_EXPERIMENT_REPLAY_KEY`, run `npm run experiment:publish -- <unique-run-id>` from `web/`. A complete run reports 10 exposed identities and 40 accepted events. Use a fresh run ID for each independent sample. After a timeout, check intake before repeating, since the warehouse may already have received events.
+
+Live exposures use a pinned call identity and are recorded when Sarvam accepts an outbound attempt or issues a consented browser session. Completed results report observed confirmations and follow-up counts, including zeros for unanswered calls. Unsupported changes require known ground truth and are scored in the scripted replay. The event payload contains counts and experiment metadata. [Flagsmith experiment setup](https://docs.flagsmith.com/experimentation/run-an-experiment)
+
 Create everything with `node web/scripts/flagsmith-setup.mjs`. Flip a flag live with `node web/scripts/flag.mjs <flag> on|off|key=value`.
 
 ### NudgeBee: incident and approval-gated recovery

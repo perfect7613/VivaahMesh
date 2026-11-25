@@ -1,10 +1,12 @@
 import "server-only";
 
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { db } from "./supabase";
 import { HttpError } from "./weddings";
-import { flagsForMember } from "./flags";
-import { browserCallDetails, requireAuthorizer } from "./calls";
+import { flagsForMember, recordVendorMetrics } from "./flags";
+import { authorizedPrompt } from "./call-preview-token";
+import { PROMPT_VERSION } from "../experiment/metrics";
+import { browserCallDetails, callRecipientScope, requireAuthorizer } from "./calls";
 import { findSarvamBrowserInteraction, getSarvamBrowserConfig, getSarvamBrowserSession } from "./sarvam-browser";
 import { browserEvidence } from "./browser-evidence";
 import { appUrl } from "./telegram-bot";
@@ -32,7 +34,6 @@ export async function callResponse(action: () => Promise<unknown>) {
 export async function browserInvite(tgId: number, input: Record<string, unknown>) {
   if (input.authorize !== true || typeof input.weddingId !== "string") throw new HttpError(400, "authorization_required");
   const me = await requireAuthorizer(tgId, input.weddingId);
-  const id = randomUUID();
   const flags = await flagsForMember(me);
   if (!flags.features.voice_channel.enabled || flags.features.voice_channel.value !== "browser") {
     throw new HttpError(409, "browser_mode_disabled");
@@ -40,7 +41,8 @@ export async function browserInvite(tgId: number, input: Record<string, unknown>
   getSarvamBrowserConfig();
   const token = randomBytes(32).toString("base64url");
   const url = appUrl(`/call-consent/${token}`);
-  const { callerPrompt, recipientName, purpose } = browserCallDetails(flags.features.caller_prompt.value);
+  const { id, prompt } = await authorizedPrompt(input.previewToken, me, callRecipientScope(true));
+  const { callerPrompt, recipientName, purpose } = browserCallDetails(prompt.variant);
   if (input.recipientName !== recipientName || input.purpose !== purpose || input.callerPrompt !== callerPrompt) {
     throw new HttpError(409, "browser_preview_changed");
   }
@@ -49,10 +51,11 @@ export async function browserInvite(tgId: number, input: Record<string, unknown>
     id, wedding_id: me.wedding_id, function_kind: "sangeet", fact_kind: "music_cutoff",
     recipient_role: "venue_owner", recipient_name: recipientName,
     recipient_phone: "", purpose, authorized_by: me.id, caller_prompt: callerPrompt,
-    status: "authorized", flags: { source: flags.source, channel: "browser", caller_prompt: callerPrompt },
+    status: "authorized", flags: { source: flags.source, channel: "browser", caller_prompt: callerPrompt, caller_assignment: prompt, prompt_version: PROMPT_VERSION },
     browser_reference: randomBytes(32).toString("base64url"),
     browser_consent_hash: hash(token), browser_consent_expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
   });
+  if (error?.code === "23505") throw new HttpError(409, "call_already_authorized");
   if (error) throw error;
   return { callId: id, url };
 }
@@ -60,7 +63,7 @@ export async function browserInvite(tgId: number, input: Record<string, unknown>
 async function tokenCall(token: string) {
   if (!TOKEN.test(token)) throw new HttpError(404, "call_not_found");
   const { data, error } = await db().from("calls")
-    .select("id,status,result_received_at,processed_at,recipient_name,language,purpose,function_kind,caller_prompt,browser_consent_expires_at,browser_consented_at,browser_started_at,browser_reference,provider_attempt_id,fact:facts(status)")
+    .select("id,flags,status,result_received_at,processed_at,recipient_name,language,purpose,function_kind,caller_prompt,browser_consent_expires_at,browser_consented_at,browser_started_at,browser_reference,provider_attempt_id,fact:facts(status)")
     .eq("browser_consent_hash", hash(token)).maybeSingle();
   if (error) throw error;
   if (!data) throw new HttpError(404, "call_not_found");
@@ -117,7 +120,9 @@ export async function browserSession(token: string, path: string[], requestUrl: 
   if (error) throw error;
   if (!data) throw new HttpError(409, "browser_session_already_started");
   try {
-    return await getSarvamBrowserSession();
+    const session = await getSarvamBrowserSession();
+    await recordVendorMetrics(call.id, call.flags?.caller_assignment);
+    return session;
   } catch {
     const reset = await db().from("calls").update({ browser_started_at: null, status: "authorized" })
       .eq("id", call.id).eq("browser_started_at", start).eq("status", "dialing");

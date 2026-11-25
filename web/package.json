@@ -8,12 +8,13 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "experiment:publish": "tsx scripts/publish-experiment.ts",
     "experiment": "WRITE_EXPERIMENT_REPORT=1 vitest run src/lib/experiment"
   },
   "dependencies": {
+    "@flagsmith/nodejs": "9.5.0",
     "@supabase/supabase-js": "^2.119.2",
     "clsx": "^2.1.1",
-    "flagsmith-nodejs": "^8.1.2",
     "lucide-react": "^1.80.0",
     "motion": "^14.14.0",
     "next": "16.4.6",

@@ -33,7 +33,7 @@ export const DEFAULT_COMPILER_POLICY = {
 // name, description, default enabled, default value, (optional) multivariate options
 const FEATURES = [
   ["compiler_policy", "Remote config for the deterministic compiler: ranking strategy, buffers, max proposals.", true, JSON.stringify(DEFAULT_COMPILER_POLICY)],
-  ["caller_prompt", "Samvaad caller script variant, pinned per call at creation.", true, "baseline", [["clarify_scope", 50]]],
+  ["caller_prompt", "Samvaad caller script variant, pinned per call at creation.", true, "baseline", [["baseline", 50], ["clarify_scope", 50]]],
   ["voice_channel", "Where vendor calls run: phone (Samvaad outbound) or browser (fallback).", true, "phone"],
   ["outbound_dialing_enabled", "Kill switch. While off, no vendor call is ever dialed.", false, null],
   ["result_processing_paused", "Kill switch. Results are stored but not applied while on. NudgeBee flips it off on recovery.", false, null],
@@ -82,7 +82,7 @@ for (const [name, description, enabled, value, mv] of FEATURES) {
   if (!f) {
     f = await api("POST", `/projects/${project.id}/features/`, {
       name, description, default_enabled: enabled, initial_value: value, type: mv ? "MULTIVARIATE" : "STANDARD",
-      multivariate_options: (mv ?? []).map(([v, pct]) => ({ type: "unicode", string_value: v, default_percentage_allocation: pct })),
+      multivariate_options: (mv ?? []).map(([v, pct]) => ({ type: "unicode", key: v, string_value: v, default_percentage_allocation: pct })),
     });
   }
   features[name] = f;

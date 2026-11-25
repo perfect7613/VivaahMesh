@@ -1,5 +1,6 @@
 import "server-only";
-import { DefaultFlag, Flagsmith } from "flagsmith-nodejs";
+import { DefaultFlag, Flagsmith } from "@flagsmith/nodejs";
+import { assignment, recordExposure, recordOutcome, type CallerPrompt, type OutcomeCounts } from "../experiment/metrics";
 import { db } from "./supabase";
 import { DEFAULT_POLICY, type CompilerPolicy } from "@/lib/compiler/types";
 
@@ -39,6 +40,7 @@ function flagsmith(): Flagsmith | null {
   if (!client) {
     client = new Flagsmith({
       environmentKey: key,
+      enableEvents: true,
       requestTimeoutSeconds: 3,
       defaultFlagHandler: (name: string) => {
         const d = SAFE_DEFAULTS[name] ?? { enabled: false, value: null };
@@ -47,6 +49,31 @@ function flagsmith(): Flagsmith | null {
     });
   }
   return client;
+}
+
+export async function callerPromptFor(callId: string): Promise<CallerPrompt> {
+  const client = flagsmith();
+  if (!client) return assignment();
+  try {
+    const flags = await client.getIdentityFlags(`call:${callId}`, {}, true);
+    return assignment(flags.getFlag("caller_prompt"));
+  } catch {
+    return assignment();
+  }
+}
+
+/** Attendance is recorded at dispatch/session start, independently of the eventual result. */
+export async function recordVendorMetrics(callId: string, prompt: CallerPrompt | undefined, outcome?: OutcomeCounts) {
+  if (!prompt?.experiment) return;
+  try {
+    const client = flagsmith();
+    if (!client) return;
+    if (outcome) recordOutcome(client, `call:${callId}`, prompt, outcome, "vendor_call");
+    else recordExposure(client, `call:${callId}`, prompt, "vendor_call");
+    await client.flushEvents();
+  } catch {
+    console.error("Caller experiment metrics unavailable.");
+  }
 }
 
 export interface ViewerTraits {
@@ -74,10 +101,10 @@ async function resolve(identity: string, traits: Record<string, string | boolean
     try {
       const flags = await fs.getIdentityFlags(identity, traits);
       for (const name of Object.keys(SAFE_DEFAULTS)) {
-        const v = flags.getFeatureValue(name);
-        features[name] = { enabled: flags.isFeatureEnabled(name), value: v == null ? null : String(v) };
+        const flag = flags.getFlag(name);
+        if (!flag.isDefault) source = "flagsmith";
+        features[name] = { enabled: flag.enabled, value: flag.value == null ? null : String(flag.value) };
       }
-      source = "flagsmith";
     } catch {
       console.error("flagsmith unavailable, using safe defaults");
     }
