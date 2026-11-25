@@ -4,13 +4,13 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { db } from "./supabase";
 import { HttpError } from "./weddings";
 import { flagsForMember } from "./flags";
-import { demoVenue, processCallResult, requireAuthorizer } from "./calls";
+import { browserCallDetails, processCallResult, requireAuthorizer } from "./calls";
 import { findSarvamBrowserInteraction, getSarvamBrowserConfig, getSarvamBrowserSession } from "./sarvam-browser";
+import { browserEvidence } from "./browser-evidence";
 import { appUrl } from "./telegram-bot";
 
 const TOKEN = /^[\w-]{43}$/;
 const INTERACTION = /^\d{8}\/[\w-]{1,128}$/;
-const PURPOSE = "Confirm when amplified music must stop at the Sangeet.";
 const LANGS = { en: "English", hi: "Hindi", mr: "Marathi" };
 
 function hash(token: string) {
@@ -38,18 +38,21 @@ export async function browserInvite(tgId: number, input: Record<string, unknown>
   if (input.authorize !== true || typeof input.weddingId !== "string") throw new HttpError(400, "authorization_required");
   const me = await requireAuthorizer(tgId, input.weddingId);
   const id = randomUUID();
-  const flags = await flagsForMember(me, id);
+  const flags = await flagsForMember(me);
   if (!flags.features.voice_channel.enabled || flags.features.voice_channel.value !== "browser") {
     throw new HttpError(409, "browser_mode_disabled");
   }
   getSarvamBrowserConfig();
   const token = randomBytes(32).toString("base64url");
   const url = appUrl(`/call-consent/${token}`);
-  const callerPrompt = flags.features.caller_prompt.value === "clarify_scope" ? "clarify_scope" : "baseline";
+  const { callerPrompt, recipientName, purpose } = browserCallDetails(flags.features.caller_prompt.value);
+  if (input.recipientName !== recipientName || input.purpose !== purpose || input.callerPrompt !== callerPrompt) {
+    throw new HttpError(409, "browser_preview_changed");
+  }
   const { error } = await db().from("calls").insert({
     id, wedding_id: me.wedding_id, function_kind: "sangeet", fact_kind: "music_cutoff",
-    recipient_role: "venue_owner", recipient_name: demoVenue()?.name ?? "Venue owner",
-    recipient_phone: "", purpose: PURPOSE, authorized_by: me.id, caller_prompt: callerPrompt,
+    recipient_role: "venue_owner", recipient_name: recipientName,
+    recipient_phone: "", purpose, authorized_by: me.id, caller_prompt: callerPrompt,
     status: "authorized", flags: { source: flags.source, channel: "browser", caller_prompt: callerPrompt },
     browser_consent_hash: hash(token), browser_consent_expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
   });
@@ -72,7 +75,7 @@ export async function consentView(token: string) {
   const call = await tokenCall(token);
   const fact = call.fact as unknown as { status?: string } | null;
   const status = !call.browser_consented_at ? "awaiting_consent"
-    : call.processed_at ? (fact?.status === "confirmed" ? "resolved" : "unresolved")
+    : fact ? (fact.status === "confirmed" ? "resolved" : "unresolved")
     : call.result_received_at ? "result_saved" : "browser_ready";
   const config = status === "browser_ready" ? getSarvamBrowserConfig() : null;
   return {
@@ -133,17 +136,10 @@ export async function saveBrowserResult(token: string, body: Record<string, unkn
   const result = await findSarvamBrowserInteraction({ interactionId: id, reference: call.id, startedAt: call.browser_started_at });
   if (!result) throw new HttpError(409, "browser_result_pending");
 
-  const wording = result.variables.cutoff_wording ?? result.variables.vendor_wording;
-  const verified = typeof wording === "string" && result.transcript.some((turn) => turn.role === "user" && turn.text.includes(wording));
-  const confirmation = result.variables.cutoff_status ?? result.variables.confirmed;
-  const variables = {
-    ...result.variables,
-    vendor_wording: verified ? wording : "",
-    confirmed: verified && (confirmation === "confirmed" || confirmation === "yes") ? "yes" : "no",
-  };
+  const variables = browserEvidence(result.variables, result.transcript);
   const { data, error } = await db().from("calls").update({
     provider_attempt_id: resultId, status: "completed", result_received_at: new Date().toISOString(),
-    result: { status: "connected", attempt_id: resultId, original_transcript: result.transcript, final_agent_variables: variables },
+    result: { status: "connected", attempt_id: resultId, original_transcript: result.transcript, original_agent_variables: result.variables, final_agent_variables: variables },
   }).eq("id", call.id).eq("status", "dialing").is("result", null).select("id").maybeSingle();
   if (error) throw error;
   if (!data && (await tokenCall(token)).provider_attempt_id !== resultId) throw new HttpError(409, "browser_result_mismatch");

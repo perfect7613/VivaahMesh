@@ -73,6 +73,15 @@ const QUESTION: Record<string, (fn: string) => string> = {
   clarify_scope: (fn) => `For the ${fn} evening, the cousins' 20-minute dance is planned near the end. By what time must amplified music stop, and does that apply to the whole event?`,
 };
 
+export function browserCallDetails(prompt: string | null | undefined) {
+  const callerPrompt = prompt === "clarify_scope" ? "clarify_scope" : "baseline";
+  return {
+    callerPrompt,
+    recipientName: process.env.DEMO_VENUE_NAME?.trim() || "Venue owner",
+    purpose: QUESTION[callerPrompt]("Sangeet"),
+  };
+}
+
 export async function requireAuthorizer(tgUserId: number, weddingId?: string) {
   const me = (await memberships(tgUserId)).find((m) => !weddingId || m.wedding_id === weddingId);
   if (!me) throw new HttpError(403, "not_a_member");
@@ -94,14 +103,16 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  const browser = browserEnabled ? browserCallDetails(variant) : null;
   return {
+    browserRecipient: browser?.recipientName,
     recipient: venue
       ? { name: venue.name, phone: maskPhone(venue.phone), language: venue.language, role: venue.role }
       : rehearsal()
         ? { name: "Shubh Mangal Lawns (rehearsal)", phone: "no phone call", language: "Hindi", role: "venue_owner" }
         : null,
-    purpose: (QUESTION[variant] ?? QUESTION.baseline)("Sangeet"),
-    callerPrompt: variant,
+    purpose: browser?.purpose ?? (QUESTION[variant] ?? QUESTION.baseline)("Sangeet"),
+    callerPrompt: browser?.callerPrompt ?? variant,
     dialingEnabled: await killSwitch("outbound_dialing_enabled"),
     browserEnabled,
     configured: (!!sarvamConfig() && !!venue) || rehearsal(),
@@ -196,6 +207,7 @@ interface SarvamWebhook {
   original_transcript?: TranscriptTurn[];
   status?: "connected" | "no_answer" | "busy" | "failed";
   final_agent_variables?: Record<string, unknown>;
+  original_agent_variables?: Record<string, unknown>;
   interaction_transcript?: { role: "agent" | "user"; en_text: string }[];
   failure_reason?: string;
 }
@@ -242,7 +254,8 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
   const transcript = !connected ? [] : payload.original_transcript
     ?? (fromAnalytics ? await fetchSarvamTranscript(payload.interaction_id!) :
       (payload.interaction_transcript ?? []).map((turn) => ({ role: turn.role, text: turn.en_text })));
-  const variables = payload.final_agent_variables ?? {};
+  const browser = call.flags?.channel === "browser";
+  const variables = (browser ? payload.original_agent_variables : undefined) ?? payload.final_agent_variables ?? {};
   let functionDate: string | null = null;
   if (connected && variables.cutoff_date != null) {
     const { data: eventFunction, error: dateError } = await s.from("functions").select("on_date")
@@ -254,7 +267,7 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
     callId,
     functionKind: call.function_kind,
     functionDate,
-    channel: call.flags?.channel === "browser" ? "browser_agent" : "samvaad_call",
+    channel: browser ? "browser_agent" : "samvaad_call",
     transcript,
     connected,
     originalTranscript: !!payload.original_transcript || fromAnalytics || english,
