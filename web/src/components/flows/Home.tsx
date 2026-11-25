@@ -207,7 +207,15 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
 
           {on.home_team_section ? (
             <Section title={t.teamHandling}>
-              <AgentFeed weddingId={view.wedding.id} lang={lang} />
+              <AgentFeed
+                weddingId={view.wedding.id}
+                lang={lang}
+                groupLink={(() => {
+                  // Couple or a parent: one tap adds the bot to the family's own group and links it.
+                  const mine = view.households.find((h) => h.id === view.me.householdId)?.inviteCode;
+                  return mine && botUsername && (view.me.isCouple || view.me.role === "parent") ? `https://t.me/${botUsername}?startgroup=link_${mine}` : null;
+                })()}
+              />
             </Section>
           ) : null}
 
