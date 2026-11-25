@@ -1,20 +1,24 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 import { fmtMinute } from "@/lib/compiler/compile";
+import { POST as recover } from "@/app/api/ops/recover/route";
 import { POST as scan } from "@/app/api/calls/incidents/route";
 import { POST as replay } from "@/app/api/calls/replay/route";
 import { dispatchStoredResult, processCallResult, storeCallResult } from "@/lib/server/calls";
 import { approveRevision, planView, seedDemoPlan } from "@/lib/server/plan";
 import { db } from "@/lib/server/supabase";
 
-const incident = vi.hoisted(() => ({ paused: true }));
+const incident = vi.hoisted(() => ({ paused: true, remoteAvailable: true }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/server/flags", async (importOriginal) => {
   const flags = await importOriginal<typeof import("@/lib/server/flags")>();
   return {
     ...flags,
-    killSwitch: async (name: string) => name === "result_processing_paused" && incident.paused,
+    killSwitch: async (name: string, requireRemote = false) => {
+      if (requireRemote && !incident.remoteAvailable) throw new Error("Remote flags unavailable");
+      return name === "result_processing_paused" && incident.paused;
+    },
   };
 });
 vi.mock("@/lib/server/agent", () => ({ runAgent: async () => ({ status: "skipped" }) }));
@@ -24,6 +28,7 @@ vi.mock("@/lib/server/telegram-bot", async (importOriginal) => {
 });
 
 afterEach(() => {
+  incident.remoteAvailable = true;
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -230,4 +235,22 @@ it("replays stored evidence across concurrent ops requests and updates both hous
     .in("kind", ["call_result_stored", "call_result_applied"]));
   expect(eventsInDb.map(({ kind }) => kind).sort()).toEqual(["call_result_applied", "call_result_stored"]);
   expect(external).toEqual([]);
+});
+
+it("validates approved inline recovery input and requires a remote switch value", async () => {
+  vi.stubEnv("OPS_SECRET", "recovery-fixture-ops");
+  vi.stubEnv("CALL_RESULT_PROCESSOR", "inline");
+  const post = (body: string, secret = "recovery-fixture-ops") => recover(new Request("http://localhost/api/ops/recover", {
+    method: "POST", headers: { "x-ops-secret": secret }, body,
+  }));
+  expect((await post("{}", "wrong")).status).toBe(403);
+  for (const body of ['{"dryrun":true}', '{"dryRun":"false"}', '[]', '{}{}']) {
+    expect((await post(body)).status).toBe(400);
+  }
+  expect((await post(" ".repeat(1025))).status).toBe(413);
+  incident.paused = true;
+  expect(await (await post('{"dryRun":true}')).json()).toEqual({ dryRun: true, paused: true });
+  incident.remoteAvailable = false;
+  expect((await post("{}")).status).toBe(503);
+  expect((await post('{"dryRun":true}')).status).toBe(503);
 });

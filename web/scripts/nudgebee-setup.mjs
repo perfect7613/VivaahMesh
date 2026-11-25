@@ -4,15 +4,20 @@
 // Flow: event vivaahmesh_call_result_stuck (or Run) → check state (dry run) → human approval →
 //       POST /api/ops/recover: Flagsmith result_processing_paused OFF, replay stored answers once. Never dials.
 if (process.env.CALL_RESULT_PROCESSOR === "worker") throw new Error("Use docs/nudgebee-workflows.md for worker mode");
-const BASE = process.argv[2] ?? "https://vivaahmesh.vercel.app";
+const app = new URL(process.argv[2] ?? "https://vivaahmesh.vercel.app");
+if (app.protocol !== "https:" || app.username || app.password || app.pathname !== "/" || app.search || app.hash) {
+  throw new Error("A public HTTPS app origin is required");
+}
+const BASE = app.origin;
 const NB = "https://app.nudgebee.com/api/rpc";
 const rpc = async (method, params) => {
-  const r = await fetch(NB, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${process.env.NUDGEBEE_API_KEY}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+  const r = await fetch(NB, { redirect: "error", signal: AbortSignal.timeout(15000), method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${process.env.NUDGEBEE_API_KEY}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
   const j = await r.json();
-  if (j.error) throw new Error(`${method}: ${JSON.stringify(j.error)}`);
+  if (!r.ok || j.error) throw new Error(`NudgeBee rejected ${method} (HTTP ${r.status})`);
   return j.result;
 };
-const account = process.env.NUDGEBEE_ACCOUNT_ID || (await rpc("accounts_list", {})).rows.find((a) => a.status === "active")?.id;
+const active = process.env.NUDGEBEE_ACCOUNT_ID ? [] : (await rpc("accounts_list", { where: {} })).rows.filter((a) => a.status === "active");
+const account = process.env.NUDGEBEE_ACCOUNT_ID || (active.length === 1 && active[0].id);
 if (!account) throw new Error("Set NUDGEBEE_ACCOUNT_ID to the account that receives call incidents");
 const headers = { "content-type": "application/json", "x-ops-secret": "{{ Secrets.VIVAAHMESH_OPS_SECRET }}" };
 const out = await rpc("workflow_create", {

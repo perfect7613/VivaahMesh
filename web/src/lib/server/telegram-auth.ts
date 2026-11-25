@@ -20,8 +20,10 @@ export function verifyInitData(
   maxAgeSeconds = 24 * 60 * 60,
 ): TelegramUser | null {
   const params = new URLSearchParams(initData);
+  const keys = [...params.keys()];
+  if (new Set(keys).size !== keys.length) return null;
   const hash = params.get("hash");
-  if (!hash) return null;
+  if (!hash || !/^[0-9a-f]{64}$/.test(hash)) return null;
   params.delete("hash");
 
   const dataCheckString = [...params.entries()]
@@ -37,11 +39,12 @@ export function verifyInitData(
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
 
   const authDate = Number(params.get("auth_date"));
-  if (!authDate || Date.now() / 1000 - authDate > maxAgeSeconds) return null;
+  const age = Math.floor(Date.now() / 1000) - authDate;
+  if (!Number.isSafeInteger(authDate) || authDate <= 0 || age < -60 || age > maxAgeSeconds) return null;
 
   try {
     const user = JSON.parse(params.get("user") ?? "null") as TelegramUser | null;
-    return user && typeof user.id === "number" ? user : null;
+    return user && Number.isSafeInteger(user.id) && user.id > 0 && typeof user.first_name === "string" ? user : null;
   } catch {
     return null;
   }
@@ -62,7 +65,16 @@ export function viewerFromRequest(req: Request): TelegramUser | null {
   if (dev && process.env.DEV_AUTH_BYPASS === "1" && process.env.NODE_ENV !== "production") {
     const [id, ...name] = dev.split(":");
     const n = Number(id);
-    if (Number.isFinite(n)) return { id: n, first_name: name.join(":") || "Dev" };
+    if (Number.isSafeInteger(n) && n > 0) return { id: n, first_name: name.join(":") || "Dev" };
   }
   return null;
+}
+
+/** Verifies the shared secret on incoming requests from Telegram and setup operators. */
+export function hasTelegramWebhookSecret(req: Request, header: string): boolean {
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!secret) return false;
+  const actual = Buffer.from(req.headers.get(header) ?? "");
+  const expected = Buffer.from(secret);
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }

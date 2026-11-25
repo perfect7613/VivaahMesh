@@ -4,6 +4,7 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch: {}
+permissions: {}
 jobs:
   beat:
     runs-on: ubuntu-latest
@@ -11,7 +12,14 @@ jobs:
     steps:
       - name: Heartbeat
         env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           OPS_SECRET: ${{ secrets.OPS_SECRET }}
         run: |
-          curl -fsS -X POST https://vivaahmesh.vercel.app/api/agent/heartbeat \
-            -H "x-ops-secret: $OPS_SECRET" --max-time 300
+          if [ -n "$CRON_SECRET" ]; then
+            header="Authorization: Bearer $CRON_SECRET"
+          else
+            : "${OPS_SECRET:?Configure the heartbeat credential}"
+            header="x-ops-secret: $OPS_SECRET"
+          fi
+          curl -fsS --output /dev/null -X POST https://vivaahmesh.vercel.app/api/agent/heartbeat \
+            -H "$header" --max-time 300

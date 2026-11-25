@@ -1,40 +1,59 @@
 "use client";
-import { useEffect, useRef } from "react";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-let client: SupabaseClient | null = null;
-function rt() {
+import { useEffect, useRef } from "react";
+import { createClient } from "@supabase/supabase-js";
+import { isWeddingTopic } from "../wedding-topic";
+import { coalesceChanges } from "./live-refresh";
+
+type Subscription = { listeners: Set<() => void>; close: () => void };
+const subscriptions = new Map<string, Subscription>();
+
+function open(topic: string): Subscription | undefined {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) return null;
-  client ??= createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
-  return client;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return;
+  const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const listeners = new Set<() => void>();
+  const changes = coalesceChanges(() => {
+    if (document.visibilityState !== "visible") return;
+    for (const listener of listeners) listener();
+  });
+  const channel = client.channel(topic).on("broadcast", { event: "changed" }, changes.notify).subscribe();
+  return {
+    listeners,
+    close() {
+      changes.cancel();
+      void client.removeChannel(channel).catch(() => {});
+    },
+  };
 }
 
-/**
- * Issue #2: run `onChange` within ~1 s of any change to this wedding on any phone. The broadcast
- * carries no data (RLS still blocks the anon key from every table); callers refetch via the API.
- * Polling stays as the fallback.
- */
-export function useWeddingLive(weddingId: string | undefined, onChange: () => void) {
-  const cb = useRef(onChange);
+/** Subscribe only to a capability received with the authenticated wedding view. */
+export function useWeddingLive(topic: string | null | undefined, onChange: () => void) {
+  const callback = useRef(onChange);
   useEffect(() => {
-    cb.current = onChange;
+    callback.current = onChange;
   }, [onChange]);
+
   useEffect(() => {
-    const c = rt();
-    if (!c || !weddingId) return;
-    let t: ReturnType<typeof setTimeout> | null = null;
-    const ch = c
-      .channel(`wedding-${weddingId}`)
-      .on("broadcast", { event: "changed" }, () => {
-        if (t) clearTimeout(t);
-        t = setTimeout(() => cb.current(), 250);
-      })
-      .subscribe();
+    if (!isWeddingTopic(topic)) return;
+    let subscription: Subscription | undefined;
+    try {
+      subscription = subscriptions.get(topic) ?? open(topic);
+    } catch {
+      return;
+    }
+    if (!subscription) return;
+    subscriptions.set(topic, subscription);
+    const listener = () => callback.current();
+    subscription.listeners.add(listener);
+
     return () => {
-      if (t) clearTimeout(t);
-      c.removeChannel(ch);
+      subscription.listeners.delete(listener);
+      if (subscription.listeners.size === 0) {
+        subscriptions.delete(topic);
+        subscription.close();
+      }
     };
-  }, [weddingId]);
+  }, [topic]);
 }

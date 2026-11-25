@@ -15,17 +15,23 @@ async function rpc<T>(method: string, params: Record<string, unknown>): Promise<
   const key = process.env.NUDGEBEE_API_KEY;
   if (!key) return null;
   try {
-    const r = await fetch(`${BASE}/api/rpc`, {
+    const endpoint = new URL("/api/rpc", BASE);
+    if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password) {
+      console.error("NudgeBee requires an HTTPS endpoint without embedded credentials");
+      return null;
+    }
+    const r = await fetch(endpoint, {
+      redirect: "error",
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
       signal: AbortSignal.timeout(15_000),
     });
     const j = (await r.json().catch(() => ({}))) as { result?: T; error?: { message: string } };
-    if (j.error) console.error(`nudgebee ${method}`, j.error.message);
+    if (!r.ok || j.error) { console.error("NudgeBee RPC rejected", method, r.status); return null; }
     return j.result ?? null;
-  } catch (e) {
-    console.error(`nudgebee ${method} failed`, e);
+  } catch {
+    console.error("NudgeBee RPC unavailable", method);
     return null;
   }
 }
@@ -33,8 +39,10 @@ async function rpc<T>(method: string, params: Record<string, unknown>): Promise<
 let accountId: string | null = process.env.NUDGEBEE_ACCOUNT_ID || null;
 async function account() {
   if (accountId) return accountId;
-  const r = await rpc<{ rows: { id: string; status: string }[] }>("accounts_list", {});
-  accountId = r?.rows.find((a) => a.status === "active")?.id ?? r?.rows[0]?.id ?? null;
+  const r = await rpc<{ rows: { id: string; status: string }[] }>("accounts_list", { where: {} });
+  const active = r?.rows.filter((a) => a.status === "active") ?? [];
+  accountId = active.length === 1 ? active[0].id : null;
+  if (active.length > 1) console.error("Set NUDGEBEE_ACCOUNT_ID to select an incident destination");
   return accountId;
 }
 
@@ -80,7 +88,7 @@ export async function reportEvent(e: NbEvent): Promise<string | null> {
     },
   });
   if (out?.status !== "COMPLETED") {
-    if (out?.error) console.error("nudgebee events.store", out.error);
+    if (out?.error) console.error("NudgeBee event storage failed");
     return null;
   }
   return out.result;

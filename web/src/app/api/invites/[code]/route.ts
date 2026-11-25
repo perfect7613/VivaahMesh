@@ -1,9 +1,9 @@
 import { authed } from "@/lib/server/route";
 import { invitePreview, HttpError } from "@/lib/server/weddings";
 
-export const GET = authed<{ params: Promise<{ code: string }> }>(async (_req, _viewer, ctx) => {
+export const GET = authed<{ params: Promise<{ code: string }> }>(async (_req, viewer, ctx) => {
   const { code } = await ctx.params;
-  const p = await invitePreview(code);
+  const p = await invitePreview(code, viewer.id);
   if (!p) throw new HttpError(404, "invite_not_found");
   return {
     kind: p.kind,

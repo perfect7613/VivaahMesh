@@ -1,3 +1,4 @@
+import { jsonObject } from "@/lib/server/request-body";
 import { after } from "next/server";
 import { authed } from "@/lib/server/route";
 import { approveRevision, planView } from "@/lib/server/plan";
@@ -15,9 +16,7 @@ export const maxDuration = 60;
  * `/api/plan/approve` is an alias of this route.
  */
 export const POST = authed(async (req, viewer) => {
-  const body = await req.json().catch(() => {
-    throw new HttpError(400, "bad_json");
-  });
+  const body = await jsonObject(req, undefined, "bad_json");
   const parsed = parseApproveInput(body);
   if (!parsed.ok) throw new HttpError(400, parsed.error);
   const out = await approveRevision(viewer.id, parsed.value);

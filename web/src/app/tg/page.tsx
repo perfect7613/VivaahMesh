@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { MiniApp } from "@/components/MiniApp";
+import { TelegramEntry } from "./TelegramEntry";
 
 export const metadata = { title: "Our Wedding · VivaahMesh" };
 
@@ -7,7 +7,7 @@ export const metadata = { title: "Our Wedding · VivaahMesh" };
 export default function TelegramMiniAppPage() {
   return (
     <Suspense>
-      <MiniApp />
+      <TelegramEntry />
     </Suspense>
   );
 }

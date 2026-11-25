@@ -6,7 +6,8 @@ import { base, pickLang } from "@/lib/i18n";
 import { flagsFor, type ViewerTraits } from "./flags";
 import { bulbulRecap, dictateClip } from "./sarvam-models";
 import { db } from "./supabase";
-import { HttpError, memberships } from "./weddings";
+import { HttpError, memberships, pingWedding } from "./weddings";
+import { takeVoiceRequest } from "./voice-request";
 
 type Member = Awaited<ReturnType<typeof memberships>>[number];
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
@@ -75,18 +76,20 @@ export async function familyVoiceView(tgId: number, weddingId: unknown) {
   };
 }
 
-function dictateProof(me: Member, expiry: number) {
+function dictateProof(me: Member, expiry: number, note: string) {
   const secret = process.env.CALLS_WEBHOOK_SECRET;
   if (!secret || secret.length < 32) throw new HttpError(503, "dictate_proof_unconfigured");
-  return createHmac("sha256", secret).update(`family-dictate:${me.id}:${me.wedding_id}:${expiry}`).digest("base64url");
+  return createHmac("sha256", secret).update(JSON.stringify(["family-dictate-v2", me.id, me.wedding_id, expiry, note])).digest("base64url");
 }
 
 export async function dictateFamilyNote(tgId: number, weddingId: unknown, audio: File, language: "en" | "hi" | "mr") {
   const me = await familyMember(tgId, weddingId);
   if ((await memberTraits(me)).householdSide !== "A") throw new HttpError(403, "household_role_required");
   const expiry = Date.now() + 30 * 60_000;
+  await takeVoiceRequest(me.id, "family-dictate");
   const output = await dictateClip(audio, language);
-  return { ...output, draftToken: `${expiry}.${dictateProof(me, expiry)}` };
+  if (output.text.length > 1000) throw new HttpError(422, "dictate_no_short_transcript");
+  return { ...output, draftToken: `${expiry}.${dictateProof(me, expiry, output.text)}` };
 }
 
 export async function publishFamilyRequirement(tgId: number, input: Record<string, unknown>) {
@@ -108,12 +111,15 @@ export async function publishFamilyRequirement(tgId: number, input: Record<strin
   if (note.length > 1000) throw new HttpError(400, "requirement_note_too_long");
   let source: FamilyRequirement["source"] = "typed";
   if (input.source === "seed") {
-    if (!preparedDinner(me, traits) || kind !== "dinner_start") throw new HttpError(403, "prepared_input_unavailable");
+    const prepared = preparedDinner(me, traits);
+    if (!prepared || kind !== "dinner_start" || note !== prepared.note || value !== prepared.value) {
+      throw new HttpError(403, "prepared_input_unavailable");
+    }
     source = "seed";
   } else if (input.draftToken) {
     const parts = typeof input.draftToken === "string" ? /^(\d{13})\.([\w-]{43})$/.exec(input.draftToken) : null;
     const expiry = Number(parts?.[1]);
-    if (!parts || expiry <= Date.now() || !timingSafeEqual(Buffer.from(parts[2]), Buffer.from(dictateProof(me, expiry)))) {
+    if (!parts || expiry <= Date.now() || !timingSafeEqual(Buffer.from(parts[2]), Buffer.from(dictateProof(me, expiry, note)))) {
       throw new HttpError(403, "invalid_dictate_proof");
     }
     source = "dictate";
@@ -134,6 +140,7 @@ export async function publishFamilyRequirement(tgId: number, input: Record<strin
   if (error?.code === "23505" || (!error && !data)) throw new HttpError(409, "requirement_changed");
   if (error?.code === "23503") throw new HttpError(404, "function_not_found");
   if (error) throw error;
+  await pingWedding(me.wedding_id);
   return { requirements: await familyRequirements(me.wedding_id) };
 }
 
@@ -145,11 +152,6 @@ export async function playFamilyRecap(tgId: number, weddingId: unknown, revision
   if (!recap || recap.revision !== revision) throw new HttpError(409, "recap_revision_changed");
   const language = base(pickLang(me.language));
   const text = approvedRecapText(recap.activities, language);
+  await takeVoiceRequest(me.id, "family-recap");
   return { audio: await bulbulRecap(text, language), revision: recap.revision };
-}
-
-export async function familyVoiceBody(req: Request): Promise<Record<string, unknown>> {
-  const value = await req.json().catch(() => null);
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new HttpError(400, "invalid_json");
-  return value;
 }

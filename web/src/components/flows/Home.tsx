@@ -30,8 +30,10 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
   const [adding, setAdding] = useState(false);
   const [editingFn, setEditingFn] = useState<View["functions"][number] | "new" | null>(null);
   const [planner, setPlanner] = useState(false);
-  const canEdit = view.me.isCouple || view.me.role === "parent";
-  const [calling, setCalling] = useState(initialScreen === "call" && (view.me.isCouple || view.me.role === "parent"));
+  const canEdit = view.me.canManage;
+  const [calling, setCalling] = useState(initialScreen === "call" && canEdit);
+  const [parentAccessError, setParentAccessError] = useState(false);
+  const [savingParentAccess, setSavingParentAccess] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const couple = `${view.wedding.partnerA} & ${view.wedding.partnerB}`;
   const myHousehold = view.households.find((h) => h.id === view.me.householdId);
@@ -46,6 +48,22 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
     if (res === "copied") {
       setCopied(key);
       setTimeout(() => setCopied(null), 1800);
+    }
+  }
+
+  async function updateParentAccess(memberId: string, granted: boolean) {
+    setSavingParentAccess(true);
+    setParentAccessError(false);
+    try {
+      const result = await api<{ view: View }>("/api/weddings/parent-access", {
+        method: "PATCH",
+        body: { weddingId: view.wedding.id, memberId, granted },
+      });
+      setView(result.view);
+    } catch {
+      setParentAccessError(true);
+    } finally {
+      setSavingParentAccess(false);
     }
   }
 
@@ -148,6 +166,19 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
                 </div>
               ))}
             </div>
+            {view.me.isCouple ? view.households.flatMap((h) => h.members
+              .filter((m) => m.role === "parent" && !m.isCouple)
+              .map((m) => (
+                <div key={m.id} className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-line px-3 py-2 text-sm">
+                  <span>{m.name} · {h.name}</span>
+                  <button type="button" disabled={savingParentAccess}
+                    onClick={() => void updateParentAccess(m.id, !m.isParentDelegate)}
+                    className="pressable min-h-10 shrink-0 font-medium text-sindoor">
+                    {m.isParentDelegate ? t.removeParentAccess : t.grantParentAccess}
+                  </button>
+                </div>
+              ))) : null}
+            {parentAccessError ? <p role="alert" className="mt-2 text-sm text-sindoor">{t.parentAccessError}</p> : null}
             {view.me.isCouple && view.wedding.coupleCode ? (
               <button
                 type="button"
@@ -225,13 +256,10 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
           {on.home_team_section ? (
             <Section title={t.teamHandling}>
               <AgentFeed
+                realtimeTopic={view.realtimeTopic}
                 weddingId={view.wedding.id}
                 lang={lang}
-                groupLink={(() => {
-                  // Couple or a parent: one tap adds the bot to the family's own group and links it.
-                  const mine = view.households.find((h) => h.id === view.me.householdId)?.inviteCode;
-                  return mine && botUsername && (view.me.isCouple || view.me.role === "parent") ? `https://t.me/${botUsername}?startgroup=link_${mine}` : null;
-                })()}
+                groupLink={myHousehold && botUsername && canEdit ? `https://t.me/${botUsername}?startgroup=link_${myHousehold.id}` : null}
               />
             </Section>
           ) : null}

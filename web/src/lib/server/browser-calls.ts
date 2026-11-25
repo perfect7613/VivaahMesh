@@ -8,6 +8,7 @@ import { browserCallDetails, requireAuthorizer } from "./calls";
 import { findSarvamBrowserInteraction, getSarvamBrowserConfig, getSarvamBrowserSession } from "./sarvam-browser";
 import { browserEvidence } from "./browser-evidence";
 import { appUrl } from "./telegram-bot";
+import { takeVoiceRequest } from "./voice-request";
 
 const TOKEN = /^[\w-]{43}$/;
 const INTERACTION = /^\d{8}\/[\w-]{1,128}$/;
@@ -15,12 +16,6 @@ const LANGS = { en: "English", hi: "Hindi", mr: "Marathi" };
 
 function hash(token: string) {
   return createHash("sha256").update(token).digest("hex");
-}
-
-export async function jsonObject(req: Request): Promise<Record<string, unknown>> {
-  const value = await req.json().catch(() => null);
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new HttpError(400, "invalid_json");
-  return value;
 }
 
 export async function callResponse(action: () => Promise<unknown>) {
@@ -49,11 +44,13 @@ export async function browserInvite(tgId: number, input: Record<string, unknown>
   if (input.recipientName !== recipientName || input.purpose !== purpose || input.callerPrompt !== callerPrompt) {
     throw new HttpError(409, "browser_preview_changed");
   }
+  await takeVoiceRequest(me.wedding_id, "browser-invite");
   const { error } = await db().from("calls").insert({
     id, wedding_id: me.wedding_id, function_kind: "sangeet", fact_kind: "music_cutoff",
     recipient_role: "venue_owner", recipient_name: recipientName,
     recipient_phone: "", purpose, authorized_by: me.id, caller_prompt: callerPrompt,
     status: "authorized", flags: { source: flags.source, channel: "browser", caller_prompt: callerPrompt },
+    browser_reference: randomBytes(32).toString("base64url"),
     browser_consent_hash: hash(token), browser_consent_expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
   });
   if (error) throw error;
@@ -63,11 +60,12 @@ export async function browserInvite(tgId: number, input: Record<string, unknown>
 async function tokenCall(token: string) {
   if (!TOKEN.test(token)) throw new HttpError(404, "call_not_found");
   const { data, error } = await db().from("calls")
-    .select("id,status,result_received_at,processed_at,recipient_name,language,purpose,function_kind,caller_prompt,browser_consent_expires_at,browser_consented_at,browser_started_at,provider_attempt_id,fact:facts(status)")
+    .select("id,status,result_received_at,processed_at,recipient_name,language,purpose,function_kind,caller_prompt,browser_consent_expires_at,browser_consented_at,browser_started_at,browser_reference,provider_attempt_id,fact:facts(status)")
     .eq("browser_consent_hash", hash(token)).maybeSingle();
   if (error) throw error;
   if (!data) throw new HttpError(404, "call_not_found");
-  if (Date.parse(data.browser_consent_expires_at) <= Date.now()) throw new HttpError(410, "consent_expired");
+  const expiry = Date.parse(data.browser_consent_expires_at);
+  if (!Number.isFinite(expiry) || expiry <= Date.now()) throw new HttpError(410, "consent_expired");
   return data;
 }
 
@@ -83,7 +81,7 @@ export async function consentView(token: string) {
     language: Object.keys(LANGS).find((code) => LANGS[code as keyof typeof LANGS] === call.language) ?? null,
     channel: "browser", status, promptVariant: call.caller_prompt,
     ...(config && { browserConfig: {
-      orgId: config.org_id, workspaceId: config.workspace_id, appId: config.app_id, version: config.version, userIdentifier: call.id,
+      orgId: config.org_id, workspaceId: config.workspace_id, appId: config.app_id, version: config.version, userIdentifier: call.browser_reference ?? call.id,
     } }),
   };
 }
@@ -95,7 +93,8 @@ export async function consentToVenueCall(token: string, body: Record<string, unk
   }
   const { data, error } = await db().from("calls").update({
     browser_consented_at: new Date().toISOString(), language: LANGS[body.language],
-  }).eq("id", call.id).is("browser_consented_at", null).select("id").maybeSingle();
+  }).eq("id", call.id).is("browser_consented_at", null).eq("status", "authorized")
+    .gt("browser_consent_expires_at", new Date().toISOString()).select("id").maybeSingle();
   if (error) throw error;
   if (!data) throw new HttpError(409, "consent_already_recorded");
   return { status: "browser_ready" };
@@ -113,7 +112,8 @@ export async function browserSession(token: string, path: string[], requestUrl: 
   if (!call.browser_consented_at || call.status !== "authorized") throw new HttpError(409, "browser_call_not_authorized");
   const start = new Date().toISOString();
   const { data, error } = await db().from("calls").update({ browser_started_at: start, status: "dialing" })
-    .eq("id", call.id).eq("status", "authorized").is("browser_started_at", null).select("id").maybeSingle();
+    .eq("id", call.id).eq("status", "authorized").is("browser_started_at", null)
+    .gt("browser_consent_expires_at", start).select("id").maybeSingle();
   if (error) throw error;
   if (!data) throw new HttpError(409, "browser_session_already_started");
   try {
@@ -131,9 +131,12 @@ export async function saveBrowserResult(token: string, body: Record<string, unkn
   const id = body.interactionId;
   if (typeof id !== "string" || !INTERACTION.test(id)) throw new HttpError(400, "invalid_interaction");
   const resultId = `browser:${id}`;
-  if (call.provider_attempt_id === resultId) return call.id;
+  if (call.provider_attempt_id === resultId) return { callId: call.id, duplicate: true };
   if (call.status !== "dialing" || !call.browser_started_at) throw new HttpError(409, "browser_call_not_started");
-  const result = await findSarvamBrowserInteraction({ interactionId: id, reference: call.id, startedAt: call.browser_started_at });
+  await takeVoiceRequest(call.id, "browser-result");
+  const result = await findSarvamBrowserInteraction({
+    interactionId: id, reference: call.browser_reference ?? call.id, startedAt: call.browser_started_at,
+  });
   if (!result) throw new HttpError(409, "browser_result_pending");
 
   const variables = browserEvidence(result.variables, result.transcript);
@@ -143,5 +146,5 @@ export async function saveBrowserResult(token: string, body: Record<string, unkn
   }).eq("id", call.id).eq("status", "dialing").is("result", null).select("id").maybeSingle();
   if (error) throw error;
   if (!data && (await tokenCall(token)).provider_attempt_id !== resultId) throw new HttpError(409, "browser_result_mismatch");
-  return call.id;
+  return { callId: call.id, duplicate: !data };
 }

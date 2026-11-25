@@ -33,8 +33,8 @@ export function parseFactInput(body: unknown): Parsed<FactInput> {
   const status = (b.status ?? "confirmed") as Fact["status"];
   if (!STATUSES.includes(status)) return { ok: false, error: "bad_status" };
 
-  const functionKind = typeof b.functionKind === "string" ? b.functionKind.trim().slice(0, 40) : "";
-  if (!functionKind) return { ok: false, error: "bad_function" };
+  const functionKind = typeof b.functionKind === "string" ? b.functionKind.trim().slice(0, 40).replace(/[\uD800-\uDFFF]$/u, "") : "";
+  if (!functionKind || /[\u0000\uD800-\uDFFF]/u.test(functionKind)) return { ok: false, error: "bad_function" };
 
   const raw = b.value === undefined ? null : b.value;
   if (raw !== null && (typeof raw !== "number" || !Number.isInteger(raw))) return { ok: false, error: "bad_value" };
@@ -42,7 +42,10 @@ export function parseFactInput(body: unknown): Parsed<FactInput> {
   if (raw !== null && (raw < 0 || raw > max)) return { ok: false, error: "bad_value" };
   if (status === "confirmed" && raw === null) return { ok: false, error: "confirmed_needs_value" };
 
-  const wording = typeof b.wording === "string" ? b.wording.trim().slice(0, 300) : "";
+  if (b.wording != null && (typeof b.wording !== "string" || /[\u0000\uD800-\uDFFF]/u.test(b.wording))) {
+    return { ok: false, error: "bad_wording" };
+  }
+  const wording = (b.wording ?? "").trim().slice(0, 300).replace(/[\uD800-\uDFFF]$/u, "");
   return { ok: true, value: { weddingId: b.weddingId as string | undefined, kind, functionKind, value: raw, status, wording } };
 }
 

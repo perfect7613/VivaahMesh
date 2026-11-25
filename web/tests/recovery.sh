@@ -33,7 +33,7 @@ SQL
 for migration in "$web_dir"/../supabase/migrations/*.sql; do
   sql -q < "$migration"
 done
-for fixture in "$web_dir"/tests/fixtures/*.sql; do
+for fixture in "$web_dir"/tests/fixtures/*.sql "$web_dir"/../supabase/tests/*.sql; do
   sql -q -f "$fixture"
 done
 

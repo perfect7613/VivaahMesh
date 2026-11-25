@@ -151,10 +151,13 @@ export async function findSarvamBrowserInteraction(input: {
   const item = data.items.map(asRecord).find((row) =>
     row?.interaction_id === input.interactionId && row.user_identifier === input.reference && row.app_version === config.version,
   );
-  if (!item || !nonemptyString(item.end_datetime)) return null;
+  if (!item || !nonemptyString(item.start_datetime) || !nonemptyString(item.end_datetime)) return null;
   // Sarvam Analytics timestamps use UTC, including values without an explicit offset.
-  const finishedAt = Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(item.end_datetime) ? item.end_datetime : `${item.end_datetime}Z`);
-  if (!Number.isFinite(finishedAt) || finishedAt < startTime - 30_000 || finishedAt > now + 30_000) return null;
+  const parseTimestamp = (value: string) => Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`);
+  const startedAt = parseTimestamp(item.start_datetime);
+  const finishedAt = parseTimestamp(item.end_datetime);
+  if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt)
+    || startedAt < startTime - 30_000 || finishedAt < startedAt || finishedAt > now + 30_000) return null;
   const transcript = await fetchSarvamTranscript(input.interactionId);
   if (transcript.length === 0) return null;
   return { interactionId: input.interactionId, variables: asRecord(item.agent_variables) ?? {}, transcript };
