@@ -1,6 +1,8 @@
 import "server-only";
 import { db } from "./supabase";
 import { HttpError, logEvent, memberships } from "./weddings";
+import { familyRequirements } from "./family-voice";
+import { applyFamilyRequirements } from "@/lib/family-plan";
 import { flagsForMember } from "./flags";
 import { compile, withConfirmedTimes } from "@/lib/compiler/compile";
 import { demoSangeet } from "@/lib/compiler/fixtures/demo-sangeet";
@@ -36,7 +38,9 @@ export async function loadSnapshot(weddingId: string): Promise<Snapshot | null> 
     source: { channel: r.channel, ref: r.ref, wording: r.wording },
     supersedes: r.supersedes?.length ? (r.supersedes as string[]) : undefined,
   }));
-  return { weddingId, revision: facts.length, activities, facts };
+  const requirements = await familyRequirements(weddingId);
+  const revision = requirements.reduce((value, item) => value + item.version, facts.length);
+  return applyFamilyRequirements({ weddingId, revision, activities, facts }, requirements);
 }
 
 /**
@@ -173,11 +177,15 @@ export async function approveProposal(tgUserId: number, input: { weddingId?: str
   const proposal = view.result.proposals.find((p) => p.id === input.proposalId);
   if (!proposal) throw new HttpError(409, "unknown_proposal");
   const functionKind = view.activities.find((a) => a.id === proposal.moves[0]?.activityId)?.functionKind ?? "wedding";
+  const moves = new Map(proposal.moves.map((move) => [move.activityId, move.to]));
+  const approvedActivities = view.activities.filter((activity) => activity.functionKind === functionKind)
+    .map((activity) => ({ ...activity, ...moves.get(activity.id) }));
   const { error } = await db().from("approvals").insert({
     wedding_id: me.wedding_id,
     function_kind: functionKind,
     proposal_id: proposal.id,
     proposal,
+    approved_activities: approvedActivities,
     snapshot_revision: view.snapshotRevision,
     policy_version: view.result.policyVersion,
     approved_by: me.id,
