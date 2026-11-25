@@ -309,6 +309,21 @@ it("compiles a contacted replacement for both households and records the couple'
   await lifecycleAction(couple, wedding.id, { type: "cancel_vendor", vendorId: firstVendor.id });
   await expect(approveRevision(couple, oldDecision)).resolves.toMatchObject({ status: "stale" });
 
+  await seedDemoPlan(couple, wedding.id);
+  checked(await client.from("facts").insert([
+    { wedding_id: wedding.id, function_kind: "sangeet", kind: "music_cutoff", value: 1315,
+      status: "confirmed", channel: "quote", ref: "replacement-fixture-cutoff", wording: "Music stops at 9:55 PM." },
+    { wedding_id: wedding.id, function_kind: "sangeet", kind: "makeup_ready", value: 1190,
+      status: "confirmed", channel: "quote", ref: "replacement-fixture-makeup", wording: "Makeup will be ready at 7:50 PM." },
+  ]).select("id"));
+  const schedule = await planView(couple, wedding.id);
+  const scheduleProposal = schedule?.result.proposals.find((proposal) => proposal.moves.length);
+  if (!schedule || !scheduleProposal) throw new Error("Expected a schedule proposal");
+  await expect(approveRevision(couple, { weddingId: wedding.id, revision: schedule.revision, proposalId: scheduleProposal.id }))
+    .resolves.toMatchObject({ status: "ok" });
+  const originalSchedule = (await planView(parent, wedding.id))?.committed;
+  expect(originalSchedule?.recap.moves).not.toHaveLength(0);
+
   const submitted = await submit("Replacement caterer");
   const replacement = submitted.vendors.find((v) => v.name === "Replacement caterer");
   if (!replacement) throw new Error("Expected pending vendor");
@@ -322,7 +337,8 @@ it("compiles a contacted replacement for both households and records the couple'
   expect(forParent).not.toHaveProperty("replacementQuotes");
   expect(JSON.stringify(forParent)).not.toContain("Private contact confirmation");
   expect(forCouple.replacementQuotes).toEqual({ [replacement.id]: 20000 });
-  const proposal = forCouple.result.proposals[0];
+  const proposal = forCouple.result.proposals.find(({ vendorReplacement }) => vendorReplacement?.vendorId === replacement.id);
+  if (!proposal) throw new Error("Expected a replacement proposal");
   expect(proposal.vendorReplacement).toMatchObject({ vendorName: replacement.name,
     cancelledVendorId: old.id, functions: ["sangeet", "ceremony"], seeded: true });
   const decision = { weddingId: wedding.id, revision: forCouple.revision, proposalId: proposal.id };
@@ -330,8 +346,14 @@ it("compiles a contacted replacement for both households and records the couple'
   expect((await planView(couple, wedding.id))?.responses[0]).toMatchObject({ memberName: "Arjun", stance: "agree" });
   await expect(approveRevision(parent, decision)).rejects.toMatchObject({ status: 403 });
   await expect(approveRevision(couple, decision)).resolves.toMatchObject({ status: "ok" });
-  expect((await planView(parent, wedding.id))?.committed).toMatchObject({ revision: decision.revision, proposalId: decision.proposalId, approvedBy: "Meera",
-    recap: { vendorReplacement: proposal.vendorReplacement } });
+  const final = await Promise.all([planView(couple, wedding.id), planView(parent, wedding.id)]);
+  for (const view of final) {
+    expect(view?.replacementApproval).toMatchObject({ revision: decision.revision, proposalId: decision.proposalId,
+      approvedBy: "Meera", recap: { vendorReplacement: proposal.vendorReplacement } });
+    expect(view?.committed).toEqual(originalSchedule);
+  }
+  expect(checked(await client.from("weddings").select("committed_revision").eq("id", wedding.id).single())
+    .committed_revision).toBe(schedule.revision);
 
   const approved = checked(await client.from("vendors")
     .select("status,authorized_by,accepted_at,paid_at,committed_inr,view_token").eq("id", replacement.id).single());

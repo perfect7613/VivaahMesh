@@ -153,6 +153,8 @@ export interface HouseholdResponse {
   updatedAt: string;
 }
 
+type ApprovalSummary = { revision: number; proposalId: string; approvedBy: string; approvedAt: string; recap: Recap };
+
 export interface PlanView {
   revision: number;
   activities: Activity[];
@@ -162,8 +164,9 @@ export interface PlanView {
   policy: { version: string; strategy: CompilerPolicy["strategy"]; source: ResolvedFlags["source"] };
   /** Both households' responses to THIS revision. */
   responses: HouseholdResponse[];
-  /** The latest couple approval: what the committed timeline came from. Survives refresh. */
-  committed: { revision: number; proposalId: string; approvedBy: string; approvedAt: string; recap: Recap } | null;
+  /** The latest approval of the schedule. */
+  committed: ApprovalSummary | null;
+  replacementApproval: ApprovalSummary | null;
   canRespond: boolean;
   canApprove: boolean;
   replacementQuotes?: Record<string, number | null>;
@@ -176,14 +179,17 @@ export async function planView(tgUserId: number, weddingId?: string): Promise<Pl
   if (!cur) return null;
   const timed = withConfirmedTimes(cur.snap).activities;
   const s = db();
-  const [rev, hs, ms, ap] = await Promise.all([
+  // Legacy approvals have no revision-bound recap.
+  const approvals = () => s.from("approvals").select("snapshot_revision, proposal_id, approved_by, created_at, recap")
+    .eq("wedding_id", me.wedding_id).not("revision_id", "is", null).order("snapshot_revision", { ascending: false }).limit(1);
+  const [rev, hs, ms, schedule, replacement] = await Promise.all([
     s.from("plan_revisions").select("id").eq("wedding_id", me.wedding_id).eq("revision", cur.revision).single(),
     s.from("households").select("id, side, name").eq("wedding_id", me.wedding_id),
     s.from("members").select("id, display_name").eq("wedding_id", me.wedding_id),
-    // Only revision-bound approvals (revision_id set); rows from the earlier flow have no recap.
-    s.from("approvals").select("snapshot_revision, proposal_id, approved_by, created_at, recap").eq("wedding_id", me.wedding_id).not("revision_id", "is", null).order("created_at", { ascending: false }).limit(1),
+    approvals().not("proposal_id", "like", "replacement-%"),
+    approvals().like("proposal_id", "replacement-%"),
   ]);
-  for (const r of [rev, hs, ms, ap]) if (r.error) throw r.error;
+  for (const r of [rev, hs, ms, schedule, replacement]) if (r.error) throw r.error;
   const { data: rs, error: rErr } = await s
     .from("household_responses")
     .select("household_id, member_id, proposal_id, stance, note, updated_at")
@@ -206,7 +212,9 @@ export async function planView(tgUserId: number, weddingId?: string): Promise<Pl
       };
     })
     .sort((x, y) => (x.side < y.side ? -1 : 1));
-  const last = ap.data?.[0];
+  const summarize = (row: NonNullable<typeof schedule.data>[number] | undefined): ApprovalSummary | null =>
+    row ? { revision: row.snapshot_revision, proposalId: row.proposal_id, approvedBy: nameOf(row.approved_by),
+      approvedAt: row.created_at, recap: row.recap as Recap } : null;
 
   return {
     revision: cur.revision,
@@ -217,9 +225,8 @@ export async function planView(tgUserId: number, weddingId?: string): Promise<Pl
     result: cur.result,
     policy: { version: cur.flags.policy.version, strategy: cur.flags.policy.strategy, source: cur.flags.source },
     responses,
-    committed: last
-      ? { revision: last.snapshot_revision, proposalId: last.proposal_id, approvedBy: nameOf(last.approved_by), approvedAt: last.created_at, recap: last.recap as Recap }
-      : null,
+    committed: summarize(schedule.data?.[0]),
+    replacementApproval: summarize(replacement.data?.[0]),
     canRespond: !!me.household_id,
     canApprove: !!me.is_couple,
     ...(me.is_couple && cur.replacements.length ? { replacementQuotes: Object.fromEntries(cur.replacements.map((v) => [v.vendorId, v.quote])) } : {}),

@@ -125,7 +125,6 @@ begin
                            approved_by, revision_id, flags, recap)
     values (p_wedding, 'wedding', p_proposal, prop, p_revision, coalesce(rev.result->>'policyVersion', 'default'),
             p_member, rev.id, coalesce(p_flags, '{}'::jsonb), p_recap);
-    update weddings set committed_revision = p_revision where id = p_wedding;
     return jsonb_build_object('status', 'ok', 'current_revision', rev.revision);
   end if;
 

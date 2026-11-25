@@ -114,7 +114,7 @@ try {
   r = await call(aai, "/api/plan/respond", { ...decision, stance: "agree" });
   ok(r.json.plan?.responses.some((response) => response.memberName === "Aai" && response.stance === "agree"), "household records its decision");
   r = await call(meera, "/api/plan/approve", decision);
-  ok(r.json.plan?.committed?.recap?.vendorReplacement?.vendorId === replacement?.id, "couple records replacement approval on the same revision");
+  ok(r.json.plan?.replacementApproval?.recap?.vendorReplacement?.vendorId === replacement?.id, "couple records replacement approval on the same revision");
 
   r = await act(meera, { type: "advance_stage", expectedStage: "day_of" });
   ok(r.json.lifecycle?.stage === "closeout", "couple → closeout");

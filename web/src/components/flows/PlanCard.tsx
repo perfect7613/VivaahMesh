@@ -20,18 +20,21 @@ interface Plan {
   result: CompileResult;
   policy: { version: string; strategy: string; source: string };
   responses: { householdId: string; side: "A" | "B"; family: string; memberName: string; proposalId: string; stance: Stance; note: string; updatedAt: string }[];
-  committed: {
-    revision: number;
-    proposalId: string;
-    approvedBy: string;
-    approvedAt: string;
-    recap: { revision: number; moves: { activityId: string; title: string; from: { start: number; end: number }; to: { start: number; end: number } }[]; costDeltaInr: number | null; reasons: Reason[]; vendorReplacement?: VendorReplacement };
-  } | null;
+  committed: ApprovalSummary | null;
+  replacementApproval: ApprovalSummary | null;
   canRespond: boolean;
   canApprove: boolean;
   replacementQuotes?: Record<string, number | null>;
   makeupEnquiries?: MakeupEnquiryView[];
 }
+
+type ApprovalSummary = {
+  revision: number;
+  proposalId: string;
+  approvedBy: string;
+  approvedAt: string;
+  recap: { revision: number; moves: { activityId: string; title: string; from: { start: number; end: number }; to: { start: number; end: number } }[]; costDeltaInr: number | null; reasons: Reason[]; vendorReplacement?: VendorReplacement };
+};
 
 const POLL_MS = 5000;
 
@@ -127,6 +130,12 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
             setPlan(next);
           }
           setNotice(t.staleNotice(next.revision));
+        } else if (e.message === "stage_locked:day_of") {
+          setNotice({
+            en: "Replacement approval is available when the Day of stage is open.",
+            hi: "विवाह के दिन का चरण खुलने पर वैकल्पिक विक्रेता को स्वीकृति दी जा सकती है।",
+            mr: "लग्नाच्या दिवसाचा टप्पा खुला झाल्यावर पर्यायी विक्रेता मंजूर करता येईल.",
+          }[base(lang)]);
         } else if (e.message === "already_approved") {
           setNotice(t.alreadyApproved);
           load();
@@ -255,9 +264,7 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
           <ul className="mt-1 flex flex-col gap-0.5">
             {plan.committed.recap.moves.map((m) => (<li key={m.activityId} className="font-medium">{moveLabel(m, m.title)}</li>))}
           </ul>
-          {plan.committed.recap.vendorReplacement
-            ? replacementDetails(plan.committed.recap.vendorReplacement)
-            : <p className="mt-0.5 text-[13px]">{cost(plan.committed.recap.costDeltaInr)}</p>}
+          <p className="mt-0.5 text-[13px]">{cost(plan.committed.recap.costDeltaInr)}</p>
           <ul className="mt-1 flex flex-col gap-0.5 text-[13px] text-muted">
             {plan.committed.recap.reasons.map((r, i) => (<li key={i}>✓ {reasonText(r)}</li>))}
           </ul>
@@ -266,6 +273,16 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
       ) : (
         <p className="text-[13px] text-muted">{t.noCommittedYet}</p>
       )}
+
+      {plan.replacementApproval?.recap.vendorReplacement ? (
+        <div className="rounded-2xl border border-mehendi/40 bg-mehendi/10 px-4 py-3">
+          <h3 className="mb-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-mehendi">
+            ✓ {{ en: "Replacement approved", hi: "वैकल्पिक विक्रेता स्वीकृत", mr: "पर्यायी विक्रेता मंजूर" }[base(lang)]}
+          </h3>
+          {replacementDetails(plan.replacementApproval.recap.vendorReplacement)}
+          <p className="mt-1.5 text-[12px] text-muted">{t.committedBy(plan.replacementApproval.approvedBy, plan.replacementApproval.revision)}</p>
+        </div>
+      ) : null}
 
       {result.conflicts.length === 0 && !result.proposals.some((p) => p.vendorReplacement) ? (
         <p className="rounded-2xl border border-line bg-card px-4 py-3 text-[15px]">✓ {t.planAllClear}</p>
