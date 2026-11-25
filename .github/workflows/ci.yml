@@ -35,6 +35,8 @@ jobs:
       - run: npm audit --audit-level=high --registry=https://registry.npmjs.org
       - run: npm run lint
       - run: npm test
+      - name: Verify WhatsApp bridge protocol
+        run: node --test ../bridge/whatsapp/*.test.mjs
       - name: Build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
