@@ -77,7 +77,7 @@ if (dialing) {
   ok(applied, "rehearsal venue answer stored and applied");
   r = await call(meera, `/api/plan?wedding=${W}`);
   const plan = r.json.plan;
-  const cutoff = plan.facts.find((f) => f.kind === "music_cutoff" && f.status === "confirmed");
+  const cutoff = plan.facts.filter((f) => f.kind === "music_cutoff" && f.status === "confirmed").at(-1); // the correction wins
   ok(cutoff?.value === 1350 && cutoff.channel === "seed" && cutoff.wording.startsWith("[Rehearsal]"), "cutoff 10:30 pm, labelled as rehearsal");
   ok(plan.result.proposals.length > 0, `options appear: ${plan.result.proposals.length}`);
 
