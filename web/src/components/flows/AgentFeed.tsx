@@ -89,7 +89,7 @@ export function AgentFeed({ weddingId, realtimeTopic, lang, groupLink }: { weddi
   const [checking, setChecking] = useState(false);
   const [checkLimited, setCheckLimited] = useState(false);
 
-  const [tasks, setTasks] = useState<{ id: string; title: string; kind: string; due: string | null; escalated: boolean; owner: string | null }[]>([]);
+  const [tasks, setTasks] = useState<{ id: string; title: string; kind: string; due: string | null; escalated: boolean; status: string; evidence: string | null; escalationPath: string; owner: string | null }[]>([]);
   const load = useCallback(
     () =>
       api<{ runs: Run[]; tasks?: typeof tasks }>(`/api/agent?wedding=${weddingId}`)
@@ -230,8 +230,12 @@ export function AgentFeed({ weddingId, realtimeTopic, lang, groupLink }: { weddi
           {tasks.map((t) => (
             <li key={t.id} className="flex items-baseline gap-2 py-1 text-[14px]">
               <span aria-hidden>{t.escalated ? "⚠️" : t.kind === "deliverable" ? "📦" : "•"}</span>
-              <span className="flex-1">{t.title}</span>
-              <span className="shrink-0 text-[12px] text-muted">{[t.owner, t.due].filter(Boolean).join(" · ")}</span>
+              <div className="min-w-0 flex-1">
+                <p>{t.title}</p>
+                <p className="text-[12px] text-muted">{[t.owner, t.due, t.status].filter(Boolean).join(" · ")}</p>
+                {t.evidence ? <p className="break-words text-[12px] text-muted">{t.evidence}</p> : null}
+                <p className="text-[12px] text-muted">{t.escalationPath}</p>
+              </div>
             </li>
           ))}
         </ul>

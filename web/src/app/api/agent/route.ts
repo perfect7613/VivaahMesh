@@ -58,8 +58,12 @@ export const POST = authed(async (req, viewer) => {
 
 async function openTasks(weddingId: string) {
   const [{ data: ts }, { data: ms }] = await Promise.all([
-    db().from("tasks").select("id, title, kind, owner_member_id, owner_label, due_date, escalated").eq("wedding_id", weddingId).neq("status", "done").order("escalated", { ascending: false }).order("created_at").limit(5),
+    db().from("tasks").select("id, title, kind, owner_member_id, owner_label, due_date, status, evidence, escalation_path, escalated").eq("wedding_id", weddingId).neq("status", "done").order("escalated", { ascending: false }).order("created_at").limit(5),
     db().from("members").select("id, display_name").eq("wedding_id", weddingId),
   ]);
-  return (ts ?? []).map((t) => ({ id: t.id, title: t.title, kind: t.kind, due: t.due_date, escalated: t.escalated, owner: (ms ?? []).find((m) => m.id === t.owner_member_id)?.display_name ?? t.owner_label ?? null }));
+  return (ts ?? []).map((t) => ({
+    id: t.id, title: t.title, kind: t.kind, due: t.due_date, status: t.status,
+    evidence: t.evidence, escalationPath: t.escalation_path, escalated: t.escalated,
+    owner: (ms ?? []).find((m) => m.id === t.owner_member_id)?.display_name ?? t.owner_label ?? null,
+  }));
 }
