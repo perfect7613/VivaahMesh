@@ -11,7 +11,7 @@ vi.mock("@/lib/i18n", () => import("../i18n"));
 vi.mock("@/lib/venue-evidence", () => import("../venue-evidence"));
 vi.mock("./translate", () => ({ localized: vi.fn() }));
 vi.mock("./supabase", () => ({ db: () => ({ from: lookup }) }));
-vi.mock("./flags", () => ({ flagsForMember, killSwitch }));
+vi.mock("./flags", () => ({ flagsForMember, killSwitch, callerPromptFor: async () => ({ variant: "baseline", version: "v1" }), recordVendorMetrics: vi.fn() }));
 vi.mock("./weddings", async (original) => ({
   ...await original<typeof import("./weddings")>(), logEvent,
   memberships: async () => [{ id: "member-1", wedding_id: "wedding-1", is_couple: true }],
@@ -36,6 +36,7 @@ beforeEach(() => {
     "SARVAM_APP_ID", "SARVAM_CONNECTION_ID", "SARVAM_AGENT_PHONE"]) {
     vi.stubEnv(name, "fixture");
   }
+  vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "fixture-preview-signing-key");
   vi.stubEnv("DEMO_VENUE_PHONE", "+15550100101");
   vi.stubEnv("DEMO_VENUE_NAME", "Configured Contact");
   vi.stubEnv("DEMO_REHEARSAL_CALLS", "0");
@@ -114,4 +115,13 @@ it("preserves ordinary wedding mode and the legacy no-provider rehearsal setting
   expect(rehearsalCall({ is_seeded_demo: false })).toBe(false);
   vi.stubEnv("DEMO_REHEARSAL_CALLS", "1");
   expect(rehearsalCall({ is_seeded_demo: false })).toBe(true);
+});
+
+it("requires a fresh authorization if a seeded phone preview switches from simulated to live", async () => {
+  flagsForMember.mockResolvedValue({ features: { voice_channel: { enabled: true, value: "phone" } }, policy: { version: "v1" } });
+  const preview = await callPreview(1);
+  vi.stubEnv("DEMO_SEEDED_LIVE_CALLS", "1");
+  await expect(authorizeCall(1, undefined, false, preview.previewToken)).rejects.toMatchObject({ status: 409 });
+  expect(insert).not.toHaveBeenCalled();
+  expect(takeVoiceRequest).not.toHaveBeenCalled();
 });

@@ -14,10 +14,10 @@ export const GET = authed(async (req, viewer) => {
 
 /** A parent or the couple authorizes the call. Generating a proposal never dials; only this does. */
 export const POST = authed(async (req, viewer) => {
-  const { weddingId, rehearsalOnly } = await voiceJsonObject(req);
+  const { weddingId, rehearsalOnly, previewToken } = await voiceJsonObject(req);
   if (weddingId !== undefined && typeof weddingId !== "string") throw new HttpError(400, "invalid_wedding");
   if (rehearsalOnly !== undefined && typeof rehearsalOnly !== "boolean") throw new HttpError(400, "invalid_rehearsal_mode");
-  const call = await authorizeCall(viewer.id, weddingId, rehearsalOnly === true);
+  const call = await authorizeCall(viewer.id, weddingId, rehearsalOnly === true, previewToken);
   if ("rehearsal" in call && call.rehearsal && call.status === "dialing") {
     // Rehearsal: the "venue" answers after a few seconds through the same store → apply path.
     after(async () => {

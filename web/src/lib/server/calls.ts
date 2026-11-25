@@ -2,7 +2,8 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { db } from "./supabase";
 import { reportResultIncidents } from "./result-incidents";
-import { flagsForMember, killSwitch } from "./flags";
+import { authorizedPrompt, newCallPreview } from "./call-preview-token";
+import { flagsForMember, killSwitch, recordVendorMetrics } from "./flags";
 import { canManageWedding, HttpError, logEvent, memberships, pingWedding } from "./weddings";
 import { appUrl, escapeHtml, sendWithApp } from "./telegram-bot";
 import { runAgent } from "./agent";
@@ -124,8 +125,10 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
   const isRehearsal = rehearsalCall(wedding);
   const venue = isRehearsal ? rehearsalVenue(wedding) : demoVenue();
   const flags = await flagsForMember(me);
-  const variant = flags.features.caller_prompt.value || "baseline";
   const browserEnabled = canUseLiveCalls(wedding) && flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser";
+  const recipient = callRecipientScope(browserEnabled, wedding);
+  const preview = await newCallPreview(me, recipient);
+  const variant = preview.prompt.variant;
   const last = await db()
     .from("calls")
     .select("id, status, created_at, error, processed_at, recipient_name, follow_up_count, fact:facts(status,value,wording)")
@@ -137,6 +140,7 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
   const lastCall = last.data;
   if (lastCall?.error && lastCall.error !== "outbound_dialing_disabled") lastCall.error = "sarvam_call_failed";
   return {
+    previewToken: preview.token,
     browserRecipient: browser?.recipientName,
     recipient: venue
       ? { name: venue.name, phone: isRehearsal ? "no phone call" : maskPhone(venue.phone), language: venue.language, role: venue.role }
@@ -151,7 +155,14 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
   };
 }
 
-export async function authorizeCall(tgUserId: number, weddingId?: string, rehearsalOnly = false) {
+export function callRecipientScope(browser: boolean, wedding: { is_seeded_demo: boolean }) {
+  if (browser) return JSON.stringify(["browser", browserCallDetails(null).recipientName]);
+  const simulated = rehearsalCall(wedding);
+  const venue = simulated ? rehearsalVenue(wedding) : demoVenue();
+  return JSON.stringify([simulated ? "rehearsal" : "phone", venue?.name, venue?.phone, venue?.language]);
+}
+
+export async function authorizeCall(tgUserId: number, weddingId?: string, rehearsalOnly = false, previewToken?: unknown) {
   const me = await requireAuthorizer(tgUserId, weddingId);
   const wedding = await callWedding(me.wedding_id);
   const cfg = sarvamConfig();
@@ -163,7 +174,8 @@ export async function authorizeCall(tgUserId: number, weddingId?: string, rehear
   if (canUseLiveCalls(wedding) && flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser") {
     throw new HttpError(409, "browser_mode_active");
   }
-  const variant = flags.features.caller_prompt.value || "baseline";
+  const preview = await authorizedPrompt(previewToken, me, callRecipientScope(false, wedding));
+  const variant = preview.prompt.variant;
   const dialing = await killSwitch("outbound_dialing_enabled");
   if (dialing && rehearsalOnly && !isRehearsal) throw new HttpError(409, "rehearsal_required");
   if (dialing) {
@@ -179,6 +191,7 @@ export async function authorizeCall(tgUserId: number, weddingId?: string, rehear
   const { data: call, error } = await s
     .from("calls")
     .insert({
+      id: preview.id,
       wedding_id: me.wedding_id,
       function_kind: "sangeet",
       fact_kind: "music_cutoff",
@@ -189,13 +202,14 @@ export async function authorizeCall(tgUserId: number, weddingId?: string, rehear
       language: venue.language,
       authorized_by: me.id,
       caller_prompt: variant,
-      flags: { caller_prompt: variant, outbound_dialing_enabled: dialing, source: flags.source, policy: flags.policy.version, channel: isRehearsal ? "rehearsal" : "phone",
+      flags: { caller_prompt: variant, caller_assignment: preview.prompt, prompt_version: preview.prompt.version, outbound_dialing_enabled: dialing, source: flags.source, policy: flags.policy.version, channel: isRehearsal ? "rehearsal" : "phone",
         ...(isRehearsal && wedding.is_seeded_demo && { seeded_rehearsal: true }) },
       status: dialing ? "dialing" : "blocked",
       error: dialing ? null : "outbound_dialing_disabled",
     })
     .select("*")
     .single();
+  if (error?.code === "23505") throw new HttpError(409, "call_already_authorized");
   if (error) throw error;
 
   if (!dialing) {
@@ -244,6 +258,7 @@ export async function authorizeCall(tgUserId: number, weddingId?: string, rehear
   // A provider callback can arrive before the outbound request returns.
   const { data: updated, error: updateError } = await s.from("calls").update(update)
     .eq("id", call.id).is("result", null).select("*").maybeSingle();
+  if (submitted) await recordVendorMetrics(call.id, preview.prompt);
   if (updateError) throw updateError;
   await logEvent(me.wedding_id, me.id, submitted ? "call_dialing" : "call_failed", { call_id: call.id, caller_prompt: variant });
   return updated ?? call;
@@ -391,16 +406,20 @@ async function applyCallResult(callId: string): Promise<"applied" | "already" | 
       cutoff_status: variables.cutoff_status ?? (variables.confirmed === "no" ? "unresolved" : undefined),
     },
   });
+  const followUps = venueFollowUpCount({ connected, transcript });
   const { data: outcome, error: applyError } = await s.rpc("apply_call_evidence_ordered", {
-    p_call: callId, p_evidence: facts, p_follow_ups: venueFollowUpCount({ connected, transcript }),
+    p_call: callId, p_evidence: facts, p_follow_ups: followUps,
   });
   if (applyError) throw applyError;
-  if (outcome === "already" || outcome === "superseded") return outcome;
-  if (outcome !== "applied") throw new Error("Unexpected call evidence outcome");
-  await pingWedding(call.wedding_id);
-  // The fixture result is already labeled in the plan. Keep it out of vendor answer messages.
-  if (call.flags?.seeded_rehearsal === true) return "applied";
+  if (outcome === "already") return outcome;
+  if (outcome !== "applied" && outcome !== "superseded") throw new Error("Unexpected call evidence outcome");
   const latest = facts.at(-1);
+  if (call.flags?.channel !== "rehearsal") {
+    await recordVendorMetrics(callId, call.flags?.caller_assignment, { confirmed: Number(latest?.status === "confirmed"), followUps });
+  }
+  if (outcome === "superseded") return outcome;
+  await pingWedding(call.wedding_id);
+  if (call.flags?.seeded_rehearsal === true) return "applied";
   let told = false;
   try {
     const result = await runAgent(call.wedding_id, "call_result");
