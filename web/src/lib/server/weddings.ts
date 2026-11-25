@@ -175,9 +175,11 @@ export async function addPriorities(
     source,
     visibility: visibility === "household" ? "household" : "shared",
   }));
-  if (!rows.length) return;
-  const { error } = await db().from("priorities").insert(rows);
+  if (!rows.length) return null;
+  const { data, error } = await db().from("priorities").insert(rows).select("id");
   if (error) throw error;
+  await logEvent(member.wedding_id, member.id, "priority_added", { count: rows.length, source });
+  return data?.at(-1)?.id as string | null;
 }
 
 export async function memberships(tgUserId: number) {

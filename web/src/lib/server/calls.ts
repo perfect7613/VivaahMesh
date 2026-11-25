@@ -5,6 +5,7 @@ import { flagsForMember, killSwitch } from "./flags";
 import { HttpError, logEvent, memberships } from "./weddings";
 import { appUrl, escapeHtml, sendWithApp } from "./telegram-bot";
 import { liveFactIds } from "@/lib/plan-input";
+import { runAgent } from "./agent";
 import { parseClock } from "@/lib/clock";
 import { pickLang, type Lang } from "@/lib/i18n";
 
@@ -247,7 +248,15 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
     if (error) throw error;
     await s.from("calls").update({ fact_id: fact.id }).eq("id", callId);
     await logEvent(claimed.wedding_id, null, "call_result_applied", { call_id: callId, value: f.value, status: f.status });
-    await notifyCallResult(claimed.wedding_id, f.value, f.status === "confirmed");
+    // The agent explains the answer and the new best option to both families; the fixed message is the fallback.
+    let told = false;
+    try {
+      const r = await runAgent(claimed.wedding_id, "call_result");
+      told = r.status === "done" && r.actions.some((a) => a.tool === "send_message" && String(a.result).startsWith("sent"));
+    } catch (e) {
+      console.error("agent after call result failed", e);
+    }
+    if (!told) await notifyCallResult(claimed.wedding_id, f.value, f.status === "confirmed");
     return "applied";
   } catch (e) {
     // Release the claim so the replay can try again.

@@ -89,6 +89,7 @@ export function MiniApp() {
       setView={(view) => setState({ kind: "home", view, celebrate: null })}
       botUsername={botUsername}
       celebrate={state.celebrate}
+      initialScreen={params.get("screen") === "call" ? "call" : undefined}
     />
   );
 }

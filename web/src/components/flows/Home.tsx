@@ -7,6 +7,7 @@ import { TelegramIcon, WhatsAppIcon } from "@/components/landing/BrandIcons";
 import { InvitationCard } from "./InvitationCard";
 import { PlanCard } from "./PlanCard";
 import { CallScreen } from "./CallScreen";
+import { AgentFeed } from "./AgentFeed";
 import { inviteLink, shareInvite } from "./shared";
 import type { View } from "./types";
 
@@ -19,12 +20,12 @@ function daysUntil(date: string | null) {
   return Math.max(0, Math.round(d / 86400000));
 }
 
-export function Home({ view, setView, botUsername, celebrate }: { view: View; setView: (v: View) => void; botUsername: string; celebrate: "created" | "joined" | null }) {
+export function Home({ view, setView, botUsername, celebrate, initialScreen }: { view: View; setView: (v: View) => void; botUsername: string; celebrate: "created" | "joined" | null; initialScreen?: "call" }) {
   const lang: Lang = pickLang(view.me.language);
   const t = dict[lang];
   const on = view.flags.on;
   const [adding, setAdding] = useState(false);
-  const [calling, setCalling] = useState(false);
+  const [calling, setCalling] = useState(initialScreen === "call" && (view.me.isCouple || view.me.role === "parent"));
   const [copied, setCopied] = useState<string | null>(null);
   const couple = `${view.wedding.partnerA} & ${view.wedding.partnerB}`;
   const myHousehold = view.households.find((h) => h.id === view.me.householdId);
@@ -163,19 +164,10 @@ export function Home({ view, setView, botUsername, celebrate }: { view: View; se
 
           {on.home_team_section ? (
             <Section title={t.teamHandling}>
-              <ul className="flex flex-col gap-2 text-[15px]">
-                {[t.teamBrief, t.teamVendors].map((x) => (
-                  <li key={x} className="flex items-center gap-3 rounded-2xl border border-line bg-card px-4 py-3.5">
-                    <span className="relative flex size-2.5 shrink-0" aria-hidden>
-                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-mehendi opacity-50" />
-                      <span className="relative inline-flex size-2.5 rounded-full bg-mehendi" />
-                    </span>
-                    {x}
-                  </li>
-                ))}
-              </ul>
+              <AgentFeed weddingId={view.wedding.id} lang={lang} />
             </Section>
           ) : null}
+
 
           <Section
             title={t.priorities}

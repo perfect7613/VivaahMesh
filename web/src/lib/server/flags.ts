@@ -26,6 +26,8 @@ const SAFE_DEFAULTS: Record<string, { enabled: boolean; value: string | null }> 
   stage_guests: { enabled: false, value: null },
   stage_day_of: { enabled: false, value: null },
   stage_closeout: { enabled: false, value: null },
+  agent_enabled: { enabled: true, value: null },
+  agent_model: { enabled: true, value: "glm5.3-flash" },
 };
 
 const STRATEGIES: CompilerPolicy["strategy"][] = ["preserve_family_priorities", "minimize_changes", "lowest_confirmed_cost"];
@@ -131,3 +133,8 @@ export async function flagsForMember(me: { id: string; wedding_id: string; house
   });
 }
 
+
+/** Wedding-level flags for the always-on agent (identity `wedding:<id>`, trait wedding_stage). */
+export async function weddingFlags(weddingId: string, weddingStage: string): Promise<ResolvedFlags> {
+  return flagsFor({ weddingId, memberId: "agent", language: "en", householdSide: null, role: "agent", isCouple: false, weddingStage });
+}
