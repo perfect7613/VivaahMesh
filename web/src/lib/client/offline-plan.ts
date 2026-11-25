@@ -71,3 +71,9 @@ export function readOfflinePlan(weddingId?: string | null): OfflinePlan | null {
   } catch { /* malformed saved data is ignored */ }
   return null;
 }
+
+/** An invite or a different wedding needs an authenticated network request. */
+export function readOfflinePlanForLocation(search: string): OfflinePlan | null {
+  const params = new URLSearchParams(search);
+  return params.has("join") ? null : readOfflinePlan(params.get("wedding"));
+}

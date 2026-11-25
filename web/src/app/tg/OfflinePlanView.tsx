@@ -1,15 +1,14 @@
 "use client";
 
 import { VivaahMark } from "@/components/landing/BrandIcons";
-import { clearOfflinePlan, offlineViewerKey, readOfflinePlan } from "@/lib/client/offline-plan";
+import { clearOfflinePlan, offlineViewerKey, readOfflinePlanForLocation } from "@/lib/client/offline-plan";
 import { useEffect, useState } from "react";
 
 export function OfflinePlanView() {
-  const [plan, setPlan] = useState<ReturnType<typeof readOfflinePlan>>(null);
+  const [plan, setPlan] = useState<ReturnType<typeof readOfflinePlanForLocation>>(null);
   useEffect(() => {
     function update() {
-      const params = new URLSearchParams(window.location.search);
-      setPlan(params.has("join") ? null : readOfflinePlan(params.get("wedding")));
+      setPlan(readOfflinePlanForLocation(window.location.search));
     }
     const timer = setTimeout(update, 0);
     const accountChanged = (event: StorageEvent) => { if (event.key === offlineViewerKey) update(); };
