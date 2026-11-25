@@ -4,6 +4,7 @@ import { HttpError, logEvent, memberships } from "./weddings";
 import { familyRequirements } from "./family-voice";
 import { applyFamilyRequirements } from "@/lib/family-plan";
 import { flagsForMember } from "./flags";
+import { makeupEnquiries } from "./makeup-enquiries";
 import { compile, withConfirmedTimes } from "@/lib/compiler/compile";
 import { demoSangeet } from "@/lib/compiler/fixtures/demo-sangeet";
 import { activityFromRow, activityToRow, liveFactIds, type ActivityRow, type FactInput } from "@/lib/plan-input";
@@ -62,6 +63,7 @@ export interface PlanView {
   snapshotRevision: number;
   activities: Activity[];
   facts: { id: string; kind: FactKind; functionKind: string; value: number | null; status: Fact["status"]; wording: string; channel: string }[];
+  makeupEnquiries: Awaited<ReturnType<typeof makeupEnquiries>>;
   result: CompileResult;
 }
 
@@ -71,8 +73,14 @@ export async function planView(tgUserId: number, weddingId?: string, policyOverr
   const snap = await loadSnapshot(me.wedding_id);
   if (!snap) return null;
   // Flagsmith decides how options are ranked (compiler_policy remote config), per viewer.
-  const flags = policyOverride ? null : await flagsForMember(me);
+  const [flags, enquiries] = await Promise.all([
+    policyOverride ? null : flagsForMember(me), makeupEnquiries(me.wedding_id),
+  ]);
   const policy = policyOverride ?? flags?.policy ?? DEFAULT_POLICY;
+  const result = compile(snap, policy);
+  const withdraw = (id: string, byMinute: number | undefined) =>
+    enquiries.some((enquiry) => enquiry.status === "withdrawn" && enquiry.proposalId === id && enquiry.readyBy === byMinute);
+  const activities = withConfirmedTimes(snap).activities;
   const { data: approval } = await db()
     .from("approvals")
     .select("proposal_id, snapshot_revision, created_at, approved_by")
@@ -91,9 +99,18 @@ export async function planView(tgUserId: number, weddingId?: string, policyOverr
     approval: approval ? { proposalId: approval.proposal_id, revision: approval.snapshot_revision, current: approval.snapshot_revision === snap.revision, by: approvedBy, at: approval.created_at } : null,
     snapshotRevision: snap.revision,
     // Same times the compiler used (e.g. dinner moved by a confirmed dinner_start fact).
-    activities: withConfirmedTimes(snap).activities,
+    activities,
     facts: snap.facts.map((f) => ({ id: f.id, kind: f.kind, functionKind: f.functionKind, value: f.value, status: f.status, wording: f.source.wording, channel: f.source.channel })),
-    result: compile(snap, policy),
+    makeupEnquiries: enquiries,
+    result: {
+      ...result,
+      conditional: result.conditional.filter((proposal) => !withdraw(proposal.id, proposal.missing.byMinute)),
+      proposals: result.proposals.filter((proposal) => {
+        const dance = proposal.moves.find((move) => activities.some((activity) =>
+          activity.id === move.activityId && activity.kind === "dance"));
+        return !dance || !withdraw(proposal.id, dance.to.start - policy.makeupBufferMin);
+      }),
+    },
   };
 }
 

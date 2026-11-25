@@ -23,8 +23,11 @@ Build this once in the Sarvam Voice Agents dashboard (indus.sarvam.ai → Samvaa
 | --- | --- |
 | `music_cutoff` | `HH:MM` in 24-hour time, e.g. `22:00`. Empty if the owner does not know. |
 | `confirmed` | `yes` if the owner stated it clearly, `no` if unsure or guessing |
-| `cutoff_scope` | `whole_event` or `sangeet_only` |
+| `cutoff_scope` | `amplified_music`, `sangeet_only` (legacy), or `whole_event` |
 | `vendor_wording` | The owner's exact words for the final answer |
+| `cutoff_function` | Canonical function kind (for example `sangeet`) when the vendor confirms which function is covered |
+| `cutoff_date` | ISO date if explicitly confirmed |
+| `cutoff_status` | `confirmed`, `unresolved`, or `declined` |
 
 ### Instructions
 
@@ -47,7 +50,10 @@ Repeat the final time back once to confirm.
 If they don't know, say the family will call back, and end politely.
 
 Never agree to a booking, a price or a payment. Never invent a time.
-Record music_cutoff (24-hour HH:MM), confirmed (yes/no), cutoff_scope and vendor_wording.
+If the owner gives only an hour, confirm AM or PM. If the owner corrects a time, let them
+finish and record the final answer. For whole-event terms, confirm the Sangeet is covered.
+Record music_cutoff (24-hour HH:MM), confirmed (yes/no), cutoff_scope, cutoff_function,
+cutoff_status and vendor_wording.
 ```
 
 ## Deploy

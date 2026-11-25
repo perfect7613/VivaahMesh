@@ -4,11 +4,12 @@ import { db } from "./supabase";
 import { flagsForMember, killSwitch } from "./flags";
 import { HttpError, logEvent, memberships } from "./weddings";
 import { appUrl, escapeHtml, sendWithApp } from "./telegram-bot";
-import { liveFactIds } from "@/lib/plan-input";
 import { runAgent } from "./agent";
-import { parseClock } from "@/lib/clock";
 import { base, pickLang, type BaseLang } from "@/lib/i18n";
 import { localized } from "./translate";
+import { venueEvidence, venueFollowUpCount } from "@/lib/venue-evidence";
+import { fetchSarvamTranscript } from "./sarvam-browser";
+type TranscriptTurn = Awaited<ReturnType<typeof fetchSarvamTranscript>>[number];
 
 /**
  * Vendor calls (issue #6). The flow, and the rules no flag can change:
@@ -97,7 +98,7 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
   const browserEnabled = flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser";
   const last = await db()
     .from("calls")
-    .select("id, status, created_at, error, processed_at, recipient_name")
+    .select("id, status, created_at, error, processed_at, recipient_name, follow_up_count, fact:facts(status,value,wording)")
     .eq("wedding_id", me.wedding_id)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -202,8 +203,11 @@ export async function authorizeCall(tgUserId: number, weddingId?: string) {
 
 interface SarvamWebhook {
   attempt_id?: string;
+  interaction_id?: string;
+  original_transcript?: TranscriptTurn[];
   status?: "connected" | "no_answer" | "busy" | "failed";
   final_agent_variables?: Record<string, unknown>;
+  original_agent_variables?: Record<string, unknown>;
   interaction_transcript?: { role: "agent" | "user"; en_text: string }[];
   failure_reason?: string;
 }
@@ -213,100 +217,90 @@ export async function storeCallResult(callId: string, payload: SarvamWebhook) {
   const s = db();
   const { data: call } = await s.from("calls").select("*").eq("id", callId).maybeSingle();
   if (!call) throw new HttpError(404, "unknown_call");
-  if (call.result && call.processed_at) return { call, duplicate: true };
+  if (typeof payload.attempt_id !== "string" || !payload.attempt_id ||
+    (call.provider_attempt_id && call.provider_attempt_id !== payload.attempt_id) ||
+    !["connected", "no_answer", "busy", "failed"].includes(payload.status ?? "")) {
+    throw new HttpError(409, "call_result_mismatch");
+  }
+  if (call.result) return { call, duplicate: true };
+  if (call.status !== "dialing" && call.status !== "failed") throw new HttpError(409, "call_not_authorized");
   const status = payload.status === "connected" ? "completed" : payload.status === "no_answer" || payload.status === "busy" ? "no_answer" : "failed";
   const { data: stored, error } = await s
     .from("calls")
     .update({ result: payload, result_received_at: new Date().toISOString(), status, error: payload.failure_reason ?? null, provider_attempt_id: call.provider_attempt_id ?? payload.attempt_id ?? null })
     .eq("id", callId)
+    .is("result", null)
     .select("*")
-    .single();
+    .maybeSingle();
   if (error) throw error;
+  if (!stored) return { call, duplicate: true };
   await logEvent(call.wedding_id, null, "call_result_stored", { call_id: callId, status });
   return { call: stored, duplicate: !!call.result };
 }
 
-/** What the vendor said, as a fact. Unclear answers stay unresolved: never guess a cutoff. */
-export function factFromResult(payload: SarvamWebhook) {
-  const v = payload.final_agent_variables ?? {};
-  const said = (payload.interaction_transcript ?? []).filter((t) => t.role === "user").map((t) => t.en_text);
-  const wording = String(v.vendor_wording ?? said.at(-1) ?? "").slice(0, 300);
-  if (payload.status !== "connected") return { value: null, status: "unresolved" as const, wording: wording || "No answer" };
-  const minute = parseClock(String(v.music_cutoff ?? ""));
-  const sure = String(v.confirmed ?? "yes").toLowerCase() !== "no";
-  return { value: minute, status: minute !== null && sure ? ("confirmed" as const) : ("unresolved" as const), wording };
-}
-
-/** Step 2: apply a stored result exactly once (claim → insert fact → link). */
+/** Apply the original vendor turns and preserve the chain of corrections. */
 export async function processCallResult(callId: string): Promise<"applied" | "paused" | "already" | "no_result"> {
   if (await killSwitch("result_processing_paused")) return "paused";
   const s = db();
-  const { data: claimed } = await s
-    .from("calls")
-    .update({ processed_at: new Date().toISOString() })
-    .eq("id", callId)
-    .is("processed_at", null)
-    .not("result", "is", null)
-    .select("*")
-    .maybeSingle();
-  if (!claimed) {
-    const { data: c } = await s.from("calls").select("result").eq("id", callId).maybeSingle();
-    return c?.result ? "already" : "no_result";
+  const { data: call, error } = await s.from("calls").select("*").eq("id", callId).maybeSingle();
+  if (error) throw error;
+  if (!call?.result) return "no_result";
+  if (call.processed_at) return "already";
+
+  const payload = call.result as SarvamWebhook;
+  const connected = payload.status === "connected";
+  const english = /^(?:en|english)$/i.test(call.language);
+  const fromAnalytics = connected && !payload.original_transcript && typeof payload.interaction_id === "string";
+  const transcript = !connected ? [] : payload.original_transcript
+    ?? (fromAnalytics ? await fetchSarvamTranscript(payload.interaction_id!) :
+      (payload.interaction_transcript ?? []).map((turn) => ({ role: turn.role, text: turn.en_text })));
+  const browser = call.flags?.channel === "browser";
+  const variables = (browser ? payload.original_agent_variables : undefined) ?? payload.final_agent_variables ?? {};
+  let functionDate: string | null = null;
+  if (connected && variables.cutoff_date != null) {
+    const { data: eventFunction, error: dateError } = await s.from("functions").select("on_date")
+      .eq("wedding_id", call.wedding_id).eq("kind", call.function_kind).maybeSingle();
+    if (dateError) throw dateError;
+    functionDate = eventFunction?.on_date ?? null;
   }
+  const facts = venueEvidence({
+    callId,
+    functionKind: call.function_kind,
+    functionDate,
+    channel: browser ? "browser_agent" : "samvaad_call",
+    transcript,
+    connected,
+    originalTranscript: !!payload.original_transcript || fromAnalytics || english,
+    variables: {
+      ...variables,
+      cutoff_wording: variables.cutoff_wording ?? variables.vendor_wording,
+      cutoff_scope: variables.cutoff_scope === "sangeet_only" && call.function_kind === "sangeet"
+        ? "amplified_music" : variables.cutoff_scope,
+      cutoff_status: variables.cutoff_status ?? (variables.confirmed === "no" ? "unresolved" : undefined),
+    },
+  });
+  const { data: applied, error: applyError } = await s.rpc("apply_call_evidence", {
+    p_call: callId, p_evidence: facts, p_follow_ups: venueFollowUpCount({ connected, transcript }),
+  });
+  if (applyError) throw applyError;
+  if (!applied) return "already";
+  const latest = facts.at(-1);
+  let told = false;
   try {
-    const payload = claimed.result as SarvamWebhook;
-    const f = factFromResult(payload);
-    if (claimed.flags?.channel === "browser" && f.status === "confirmed") {
-      // Browser evidence uses fixed 24-hour HH:MM. The shared phone parser treats bare evening hours as PM.
-      const [hours, minutes] = String(payload.final_agent_variables?.music_cutoff).split(":").map(Number);
-      if (Number.isInteger(hours) && Number.isInteger(minutes)) f.value = hours * 60 + minutes;
-    }
-    const { data: prior } = await s
-      .from("facts")
-      .select("id, supersedes")
-      .eq("wedding_id", claimed.wedding_id)
-      .eq("kind", claimed.fact_kind)
-      .eq("function_kind", claimed.function_kind);
-    // A vendor's own answer replaces every earlier answer for the same term. An unclear one replaces nothing.
-    const { data: fact, error } = await s
-      .from("facts")
-      .insert({
-        wedding_id: claimed.wedding_id,
-        kind: claimed.fact_kind,
-        function_kind: claimed.function_kind,
-        value: f.value,
-        status: f.status,
-        channel: claimed.flags?.channel === "browser" ? "browser_agent"
-          : claimed.flags?.channel === "rehearsal" ? "seed" : "samvaad_call",
-        ref: claimed.provider_attempt_id ?? claimed.id,
-        wording: (claimed.flags as { channel?: string })?.channel === "rehearsal" ? `[Rehearsal] ${f.wording}` : f.wording,
-        supersedes: f.status === "confirmed" ? liveFactIds(prior ?? []) : [],
-      })
-      .select("id")
-      .single();
-    if (error) throw error;
-    await s.from("calls").update({ fact_id: fact.id }).eq("id", callId);
-    await logEvent(claimed.wedding_id, null, "call_result_applied", { call_id: callId, value: f.value, status: f.status });
-    // The agent explains the answer and the new best option to both families; the fixed message is the fallback.
-    let told = false;
-    try {
-      const r = await runAgent(claimed.wedding_id, "call_result");
-      told = r.status === "done" && r.actions.some((a) => a.tool === "send_message" && String(a.result).startsWith("sent"));
-    } catch (e) {
-      console.error("agent after call result failed", e);
-    }
-    if (!told) await notifyCallResult(claimed.wedding_id, f.value, f.status === "confirmed");
-    return "applied";
-  } catch (e) {
-    // Release the claim so the replay can try again.
-    await s.from("calls").update({ processed_at: null }).eq("id", callId);
-    throw e;
+    const result = await runAgent(call.wedding_id, "call_result");
+    told = result.status === "done" && result.actions.some((action) =>
+      action.tool === "send_message" && String(action.result).startsWith("sent"));
+  } catch (error) {
+    console.error("agent after call result failed", error);
   }
+  if (!told) await notifyCallResult(call.wedding_id, latest?.value ?? null, latest?.status === "confirmed");
+  return "applied";
 }
 
 /** Replays every stored-but-unapplied result (NudgeBee recovery runbook step 3). */
 export async function replayPending() {
-  const { data } = await db().from("calls").select("id").not("result", "is", null).is("processed_at", null).order("result_received_at");
+  const { data, error } = await db().from("calls").select("id").not("result", "is", null).is("processed_at", null).order("result_received_at");
+  if (error) throw error;
   const out: Record<string, string> = {};
   for (const c of data ?? []) out[c.id] = await processCallResult(c.id);
   return out;
@@ -338,14 +332,15 @@ async function notifyCallResult(weddingId: string, minute: number | null, confir
 
 /** The rehearsal venue's answer, including a mid-call correction (the last answer wins). */
 export async function simulateRehearsalAnswer(callId: string) {
+  const reply = "Amplified music can play until 10 pm… actually, make it 10:30 pm for you.";
   await storeCallResult(callId, {
     attempt_id: `rehearsal-${callId}`,
     status: "connected",
-    final_agent_variables: { music_cutoff: "22:30", confirmed: "yes", cutoff_scope: "whole_event", vendor_wording: "Music till ten… actually, make it ten-thirty for you." },
-    interaction_transcript: [
-      { role: "agent", en_text: "Namaste, I'm an AI assistant calling for the Meera and Aarav families. By what time must amplified music stop at the Sangeet?" },
-      { role: "user", en_text: "Music till ten… actually, make it ten-thirty for you." },
-      { role: "agent", en_text: "So amplified music can play until 10:30 pm. Thank you!" },
+    final_agent_variables: { cutoff_status: "confirmed", cutoff_scope: "amplified_music", cutoff_wording: reply },
+    original_transcript: [
+      { role: "agent", text: "Namaste, I'm an AI assistant calling for the Meera and Aarav families. By what time must amplified music stop at the Sangeet?" },
+      { role: "user", text: reply },
+      { role: "agent", text: "So amplified music can play until 10:30 pm. Thank you!" },
     ],
   });
   return processCallResult(callId);
