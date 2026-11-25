@@ -196,7 +196,7 @@ Each of the three sponsors does a job MahiWay can't work without:
 
 One Sarvam key covers five models, and together they give MahiWay a full speech-and-language stack for Indian families:
 
-- **GLM-5.3 on the Token Factory** runs the always-on agent with real tool calling: it reads family groups, saves notes under the right person's name, answers questions and decides who to nudge. It also translates the whole interface into the 19 languages we don't hand-write.
+- **GLM-5.3 on the Token Factory** runs the always-on agent with real tool calling: it reads family groups, saves notes under the right person's name, answers questions and decides who to nudge. It also translates the whole interface into the 20 languages we don't hand-write.
 - **Saaras v4** turns a 30-second voice note in Marathi, Hindi or Hinglish into text, so elders can speak instead of type.
 - **Sarvam Translate** sends every bot and agent message in the reader's own language: 22 scheduled Indian languages plus English.
 - **Samvaad** is a voice agent that phones the venue, asks one precise question, and returns structured answers (`music_cutoff`, `confirmed`, `vendor_wording`) that go straight into the plan as evidence.
