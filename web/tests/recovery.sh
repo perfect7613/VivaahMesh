@@ -33,7 +33,9 @@ SQL
 for migration in "$web_dir"/../supabase/migrations/*.sql; do
   sql -q < "$migration"
 done
-sql -q -f "$web_dir/tests/fixtures/order-call-evidence.sql"
+for fixture in "$web_dir"/tests/fixtures/*.sql; do
+  sql -q -f "$fixture"
+done
 
 port=$(node -e '
   const server = require("node:net").createServer();

@@ -70,18 +70,28 @@ async function cachedWeddingFlags(weddingId: string, stage: string): Promise<Res
  * changed; see revisionFingerprint and record_revision.
  */
 async function currentRevision(weddingId: string) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const current = await tryCurrentRevision(weddingId);
+    if (current !== undefined) return current;
+  }
+  throw new HttpError(503, "plan_revision_busy");
+}
+
+async function tryCurrentRevision(weddingId: string) {
   const s = db();
+  const latest = await s.from("plan_revisions").select("revision, fingerprint, result, flags")
+    .eq("wedding_id", weddingId).order("revision", { ascending: false }).limit(1);
+  if (latest.error) throw latest.error;
+  const last = latest.data?.[0];
+
   const makeup = makeupEnquiries(weddingId);
-  const [snap, enquiries, w, latest] = await Promise.all([
+  const [snap, enquiries, w] = await Promise.all([
     loadSnapshot(weddingId, makeup),
     makeup,
     s.from("weddings").select("stage").eq("id", weddingId).single(),
-    s.from("plan_revisions").select("revision, fingerprint, result, flags").eq("wedding_id", weddingId).order("revision", { ascending: false }).limit(1),
   ]);
   if (w.error) throw w.error;
-  if (latest.error) throw latest.error;
   if (!snap) return null;
-  const last = latest.data?.[0];
 
   const resolved = await cachedWeddingFlags(weddingId, w.data.stage);
   // During a Flagsmith outage keep the policy the latest revision was made with (see policyForRevision).
@@ -96,13 +106,15 @@ async function currentRevision(weddingId: string) {
   }
 
   const result = compile(snap, policy);
-  const { data: revision, error } = await s.rpc("record_revision", {
+  const { data: revision, error } = await s.rpc("record_revision_if_current", {
     p_wedding: weddingId,
+    p_expected_revision: last?.revision ?? 0,
     p_fingerprint: fingerprint,
     p_result: result,
     p_flags: flagSnapshot(flags),
   });
   if (error) throw error;
+  if (revision === null) return undefined;
   // Return what was STORED for this revision (a concurrent request may have recorded it first),
   // because responses and approvals are validated against the stored result.
   const { data: stored, error: sErr } = await s.from("plan_revisions").select("result").eq("wedding_id", weddingId).eq("revision", revision as number).single();

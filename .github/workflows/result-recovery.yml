@@ -40,3 +40,7 @@ jobs:
         run: web/tests/recovery.sh
       - name: Build the Azure worker image
         run: docker build --tag vivaahmesh-result-worker:ci --file ops/result-worker/Dockerfile .
+      - name: Verify the worker runtime on a read-only filesystem
+        run: |
+          docker run --rm --read-only --env TSX_DISABLE_CACHE=1 --entrypoint node vivaahmesh-result-worker:ci \
+            --conditions=react-server --import tsx -e "const { processCallResult } = require('./src/lib/server/calls.ts'); if (typeof processCallResult !== 'function' || process.getuid() === 0) process.exit(1)"
