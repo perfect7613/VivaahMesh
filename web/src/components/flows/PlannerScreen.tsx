@@ -1,0 +1,218 @@
+"use client";
+import { useCallback, useEffect, useState } from "react";
+import { api, haptic, useBackButton } from "@/lib/client/telegram";
+import { useWeddingLive } from "@/lib/client/live";
+import type { View } from "./types";
+
+type L = {
+  me: { id: string; isCouple: boolean; decider: boolean };
+  stage: string;
+  next: string | null;
+  open: Record<"sourcing" | "booking" | "guests" | "day_of" | "closeout", boolean>;
+  flagSource: string;
+  tasks: { id: string; title: string; kind: string; status: string; owner: string | null; due_date: string | null; evidence: string | null; escalated: boolean; seeded: boolean; signedOffBy: string | null }[];
+  vendors: { id: string; name: string; category: string; origin: string; functions: string[]; status: string; seeded: boolean; quote_inr: number | null; planned_inr: number | null; committed_inr: number | null; invoice_inr: number | null; paid_inr: number | null; authorizedBy: string | null; accepted_at: string | null; paid_at: string | null; viewUrl: string | null }[];
+  spend: { planned: number; committed: number; actual: number; discrepancies: { vendorId: string; name: string; committed: number; invoice: number; diff: number }[] } | null;
+  openDeliverables: number;
+  functions: { id: string; title: string; kind: string }[];
+  guests: { id: string; name: string; party: number; rsvpUrl: string }[];
+  rsvp: Record<string, { yes: number; no: number; people: number; veg: number; nonVeg: number }>;
+  registry: { id: string; title: string; price_inr: number | null; reserved: boolean; reservedBy: string | null }[];
+};
+
+const STAGES = ["brief", "sourcing", "booking", "guests", "day_of", "closeout"];
+const STAGE_LABEL: Record<string, string> = { brief: "Brief", sourcing: "Sourcing", booking: "Booking", guests: "Guests", day_of: "Day of", closeout: "Closeout" };
+const CATS = ["venue", "caterer", "decor", "photo_video", "makeup", "dj_music", "mehendi", "pandit", "other"];
+const inr = (n: number | null | undefined) => (n == null ? "—" : `₹${n.toLocaleString("en-IN")}`);
+const input = "min-h-11 min-w-0 rounded-xl border border-line bg-card px-3 text-[15px] outline-none focus:border-marigold";
+const btn = "pressable min-h-10 rounded-xl px-3 text-[14px] font-medium disabled:opacity-50";
+
+/** Planner: stages unlocked by Flagsmith, owned tasks, vendors (authorize ≠ accept ≠ pay), spend, guests, registry. */
+export function PlannerScreen({ view, onClose }: { view: View; onClose: () => void }) {
+  const W = view.wedding.id;
+  const [l, setL] = useState<L | null>(null);
+  const [tab, setTab] = useState<"stage" | "vendors" | "guests">("stage");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useBackButton(onClose);
+
+  const load = useCallback(() => api<{ lifecycle: L }>(`/api/lifecycle?wedding=${W}`).then((r) => setL(r.lifecycle)).catch((e) => setErr(e.message)), [W]);
+  useWeddingLive(W, load);
+  useEffect(() => {
+    const t = setTimeout(load, 0);
+    return () => clearTimeout(t);
+  }, [load]);
+
+  async function act(action: Record<string, unknown>) {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api<{ lifecycle: L }>("/api/lifecycle", { body: { weddingId: W, action } });
+      setL(r.lifecycle);
+      haptic.success();
+    } catch (e) {
+      haptic.error();
+      const m = (e as Error).message;
+      setErr(m.startsWith("stage_locked:") ? `Locked until the wedding reaches “${STAGE_LABEL[m.split(":")[1]]}” (Flagsmith stage gate).` : m);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Small local forms
+  const [task, setTask] = useState("");
+  const [deliverable, setDeliverable] = useState(false);
+  const [vName, setVName] = useState("");
+  const [vCat, setVCat] = useState("caterer");
+  const [vOrigin, setVOrigin] = useState<"family" | "sourced">("sourced");
+  const [vQuote, setVQuote] = useState("");
+  const [vFns, setVFns] = useState<string[]>([]);
+  const [gName, setGName] = useState("");
+  const [gParty, setGParty] = useState("2");
+  const [rTitle, setRTitle] = useState("");
+  const [rPrice, setRPrice] = useState("");
+  const copy = (path: string) => {
+    const url = `${location.origin}${path}`;
+    navigator.clipboard?.writeText(url).then(() => haptic.success()).catch(() => window.prompt("Copy this link", url));
+  };
+
+  if (!l) return <main className="mx-auto max-w-md p-6">{err ? <p className="text-sindoor">{err}</p> : <div className="h-40 animate-pulse rounded-3xl bg-card" />}</main>;
+  const si = STAGES.indexOf(l.stage);
+
+  return (
+    <div className="relative min-h-dvh overflow-x-clip">
+      <div className="toran" />
+      <main className="step-enter relative mx-auto w-full max-w-md px-5 pb-24 pt-6">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-sindoor">Planner</p>
+        <ol className="mt-3 flex gap-1" aria-label="Wedding stage">
+          {STAGES.map((s, i) => (
+            <li key={s} className={`flex-1 rounded-full py-1 text-center text-[11px] font-medium ${i < si ? "bg-mehendi/20" : i === si ? "bg-sindoor text-white" : "bg-card text-muted"}`}>{STAGE_LABEL[s]}</li>
+          ))}
+        </ol>
+        <p className="mt-2 text-[12px] text-muted">Screens unlock with the wedding stage · {l.flagSource === "flagsmith" ? "Flagsmith" : "safe defaults"}</p>
+        {l.me.isCouple && l.next ? (
+          <button disabled={busy} onClick={() => act({ type: "advance_stage" })} className={`${btn} mt-2 w-full border border-marigold/60`}>Move to {STAGE_LABEL[l.next]} →</button>
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-card p-1">
+          {(["stage", "vendors", "guests"] as const).map((t) => (
+            <button key={t} onClick={() => setTab(t)} className={`min-h-10 rounded-xl text-[14px] font-medium ${tab === t ? "bg-sindoor text-white" : ""}`}>{t === "stage" ? "Tasks" : t === "vendors" ? "Vendors & spend" : "Guests"}</button>
+          ))}
+        </div>
+        {err ? <p className="mt-3 rounded-2xl border border-sindoor/40 bg-sindoor/10 px-4 py-3 text-[14px]">{err}</p> : null}
+
+        {tab === "stage" ? (
+          <section className="mt-4">
+            {l.openDeliverables ? <p className="mb-3 rounded-2xl bg-marigold-soft px-4 py-3 text-[14px]">📦 {l.openDeliverables} deliverable{l.openDeliverables > 1 ? "s" : ""} still open (stays open after the wedding until delivered).</p> : null}
+            <ul className="flex flex-col gap-2">
+              {l.tasks.map((t) => (
+                <li key={t.id} className={`rounded-2xl border px-4 py-3 ${t.escalated && t.status !== "done" ? "border-sindoor/50" : "border-line"} bg-card`}>
+                  <div className="flex items-start gap-3">
+                    <button aria-label="Toggle done" disabled={busy} onClick={() => act({ type: "task_status", taskId: t.id, status: t.status === "done" ? "open" : "done" })} className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border ${t.status === "done" ? "border-mehendi bg-mehendi text-white" : "border-line"}`}>{t.status === "done" ? "✓" : ""}</button>
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-[15px] ${t.status === "done" ? "text-muted line-through" : ""}`}>{t.kind === "incident" ? "⚠️ " : t.kind === "replacement" ? "🔁 " : t.kind === "deliverable" ? "📦 " : ""}{t.title}{t.seeded ? " (sample)" : ""}</p>
+                      <p className="text-[12px] text-muted">{[t.owner && `Owner: ${t.owner}`, t.due_date && `due ${t.due_date}`, t.signedOffBy && `signed off by ${t.signedOffBy}`].filter(Boolean).join(" · ")}</p>
+                    </div>
+                    {l.me.isCouple && l.open.closeout && !t.signedOffBy && t.status !== "done" ? <button disabled={busy} onClick={() => act({ type: "sign_off", taskId: t.id })} className={`${btn} border border-line`}>Sign off</button> : null}
+                  </div>
+                </li>
+              ))}
+              {!l.tasks.length ? <li className="text-[14px] text-muted">No tasks yet.</li> : null}
+            </ul>
+            <form className="mt-3 flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); if (task.trim()) act({ type: "add_task", title: task, kind: deliverable ? "deliverable" : "task" }).then(() => setTask("")); }}>
+              <div className="flex gap-2">
+                <input className={`${input} flex-1`} value={task} onChange={(e) => setTask(e.target.value)} placeholder="Add a task (you own it)" maxLength={120} />
+                <button className={`${btn} bg-sindoor text-white`} disabled={busy || !task.trim()}>Add</button>
+              </div>
+              <label className="flex items-center gap-2 text-[13px] text-muted"><input type="checkbox" checked={deliverable} onChange={(e) => setDeliverable(e.target.checked)} /> It’s a deliverable (album, film…)</label>
+            </form>
+          </section>
+        ) : null}
+
+        {tab === "vendors" ? (
+          <section className="mt-4">
+            {l.spend ? (
+              <div className="mb-3 grid grid-cols-3 gap-2 text-center">
+                {(["planned", "committed", "actual"] as const).map((k) => (
+                  <div key={k} className="rounded-2xl border border-line bg-card px-2 py-3"><p className="text-[11px] uppercase tracking-wider text-muted">{k}</p><p className="font-display text-[18px]">{inr(l.spend![k])}</p></div>
+                ))}
+              </div>
+            ) : null}
+            {l.spend?.discrepancies.map((d) => <p key={d.vendorId} className="mb-2 rounded-2xl border border-sindoor/40 bg-sindoor/10 px-4 py-2 text-[14px]">⚠️ {d.name}: invoice {inr(d.invoice)} vs approved {inr(d.committed)} ({d.diff > 0 ? "+" : ""}{inr(d.diff)})</p>)}
+            {!l.open.sourcing ? <p className="rounded-2xl bg-card px-4 py-3 text-[14px] text-muted">🔒 Vendors open at the Sourcing stage.</p> : null}
+            <ul className="flex flex-col gap-2">
+              {l.vendors.map((v) => (
+                <li key={v.id} className={`rounded-2xl border border-line bg-card px-4 py-3 ${v.status === "cancelled" ? "opacity-60" : ""}`}>
+                  <p className="font-medium">{v.name} <span className="text-[12px] font-normal text-muted">· {v.category.replace("_", " ")} · {v.origin === "family" ? "family’s own" : "sourced"}{v.seeded ? " · sample" : ""}</span></p>
+                  <p className="text-[12px] text-muted">{v.functions.join(", ") || "all functions"}{l.me.isCouple ? ` · quote ${inr(v.quote_inr)} · paid ${inr(v.paid_inr)}` : ""}</p>
+                  <p className="mt-1 text-[12px]">
+                    {v.status === "cancelled" ? "❌ cancelled" : [v.authorizedBy ? `✓ authorized by ${v.authorizedBy}` : "○ not authorized", v.accepted_at ? "✓ vendor accepted" : "○ vendor hasn’t accepted", v.paid_at ? "✓ paid" : "○ unpaid"].join(" · ")}
+                  </p>
+                  {v.status !== "cancelled" ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {l.me.decider && v.status === "shortlisted" ? <button disabled={busy} onClick={() => act({ type: "authorize_vendor", vendorId: v.id })} className={`${btn} bg-mehendi text-white`}>Authorize booking</button> : null}
+                      {v.status === "authorized" ? <button disabled={busy} onClick={() => act({ type: "vendor_accepted", vendorId: v.id })} className={`${btn} border border-line`}>Vendor accepted</button> : null}
+                      {l.me.isCouple && v.status !== "shortlisted" ? <button disabled={busy} onClick={() => { const inv = window.prompt("Invoice amount (₹)", String(v.invoice_inr ?? v.committed_inr ?? "")); const paid = window.prompt("Paid so far (₹)", String(v.paid_inr ?? 0)); if (inv !== null || paid !== null) act({ type: "vendor_money", vendorId: v.id, invoiceInr: inv || undefined, paidInr: paid || undefined }); }} className={`${btn} border border-line`}>Invoice / payment</button> : null}
+                      {v.viewUrl ? <button onClick={() => copy(v.viewUrl!)} className={`${btn} border border-line`}>Copy run-sheet link</button> : null}
+                      {l.me.decider ? <button disabled={busy} onClick={() => { const why = window.prompt(`Mark ${v.name} as cancelled? Reason:`); if (why !== null) act({ type: "cancel_vendor", vendorId: v.id, reason: why }); }} className={`${btn} border border-sindoor/50 text-sindoor`}>Cancelled</button> : null}
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {l.me.decider && l.open.sourcing ? (
+              <form className="mt-3 flex flex-col gap-2 rounded-2xl border border-dashed border-marigold/60 p-3" onSubmit={(e) => { e.preventDefault(); act({ type: "add_vendor", name: vName, category: vCat, origin: vOrigin, quoteInr: vQuote || undefined, functions: vFns }).then(() => { setVName(""); setVQuote(""); setVFns([]); }); }}>
+                <input className={input} value={vName} onChange={(e) => setVName(e.target.value)} placeholder="Vendor name (e.g. our family caterer)" maxLength={80} />
+                <div className="flex gap-2">
+                  <select className={`${input} flex-1`} value={vCat} onChange={(e) => setVCat(e.target.value)}>{CATS.map((c) => <option key={c} value={c}>{c.replace("_", " ")}</option>)}</select>
+                  <select className={`${input} flex-1`} value={vOrigin} onChange={(e) => setVOrigin(e.target.value as "family" | "sourced")}><option value="sourced">Sourced</option><option value="family">Family’s own</option></select>
+                </div>
+                <input className={input} inputMode="numeric" value={vQuote} onChange={(e) => setVQuote(e.target.value.replace(/\D/g, ""))} placeholder="Quote ₹ (optional)" />
+                <div className="flex flex-wrap gap-1.5">
+                  {l.functions.map((f) => <button type="button" key={f.id} onClick={() => setVFns((x) => (x.includes(f.kind === "other" ? f.title : f.kind) ? x.filter((y) => y !== (f.kind === "other" ? f.title : f.kind)) : [...x, f.kind === "other" ? f.title : f.kind]))} className={`rounded-full border px-3 py-1 text-[13px] ${vFns.includes(f.kind === "other" ? f.title : f.kind) ? "border-sindoor bg-sindoor text-white" : "border-line"}`}>{f.title}</button>)}
+                </div>
+                <button className={`${btn} bg-sindoor text-white`} disabled={busy || !vName.trim()}>Add vendor</button>
+              </form>
+            ) : null}
+          </section>
+        ) : null}
+
+        {tab === "guests" ? (
+          <section className="mt-4">
+            {!l.open.guests ? <p className="mb-3 rounded-2xl bg-card px-4 py-3 text-[14px] text-muted">🔒 Guest list opens at the Guests stage.</p> : null}
+            <ul className="grid grid-cols-2 gap-2">
+              {l.functions.map((f) => {
+                const c = l.rsvp[f.id];
+                return <li key={f.id} className="rounded-2xl border border-line bg-card px-3 py-2"><p className="font-medium">{f.title}</p><p className="text-[12px] text-muted">{c ? `${c.people} coming · ${c.veg} veg / ${c.nonVeg} non-veg · ${c.no} declined` : "No RSVPs yet"}</p></li>;
+              })}
+            </ul>
+            <h3 className="mt-5 font-medium">Guests ({l.guests.length})</h3>
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {l.guests.map((g) => (
+                <li key={g.id} className="flex items-center gap-2 rounded-xl border border-line bg-card px-3 py-2 text-[15px]"><span className="flex-1">{g.name} <span className="text-muted">×{g.party}</span></span><button onClick={() => copy(g.rsvpUrl)} className={`${btn} border border-line`}>Copy RSVP link</button></li>
+              ))}
+            </ul>
+            {l.open.guests ? (
+              <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); act({ type: "add_guest", name: gName, party: Number(gParty) }).then(() => setGName("")); }}>
+                <input className={`${input} flex-1`} value={gName} onChange={(e) => setGName(e.target.value)} placeholder="Guest or family name" maxLength={80} />
+                <input className={`${input} w-16`} inputMode="numeric" value={gParty} onChange={(e) => setGParty(e.target.value.replace(/\D/g, ""))} aria-label="Party size" />
+                <button className={`${btn} bg-sindoor text-white`} disabled={busy || !gName.trim()}>Add</button>
+              </form>
+            ) : null}
+            <h3 className="mt-5 font-medium">Gift registry</h3>
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {l.registry.map((i) => <li key={i.id} className="flex justify-between rounded-xl border border-line bg-card px-3 py-2 text-[15px]"><span>{i.title} <span className="text-muted">{i.price_inr ? inr(i.price_inr) : ""}</span></span><span className="text-[13px] text-muted">{i.reserved ? `Reserved${i.reservedBy ? ` by ${i.reservedBy}` : ""}` : "Free"}</span></li>)}
+            </ul>
+            {l.me.isCouple ? (
+              <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); act({ type: "add_registry", title: rTitle, priceInr: rPrice || undefined }).then(() => { setRTitle(""); setRPrice(""); }); }}>
+                <input className={`${input} flex-1`} value={rTitle} onChange={(e) => setRTitle(e.target.value)} placeholder="Gift (e.g. pressure cooker)" maxLength={80} />
+                <input className={`${input} w-24`} inputMode="numeric" value={rPrice} onChange={(e) => setRPrice(e.target.value.replace(/\D/g, ""))} placeholder="₹" />
+                <button className={`${btn} bg-sindoor text-white`} disabled={busy || !rTitle.trim()}>Add</button>
+              </form>
+            ) : null}
+          </section>
+        ) : null}
+      </main>
+    </div>
+  );
+}

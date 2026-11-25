@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tr, type Lang } from "@/lib/i18n";
 import { ApiError, api, haptic } from "@/lib/client/telegram";
+import { useWeddingLive } from "@/lib/client/live";
 import { fmtMinute } from "@/lib/compiler/compile";
 import type { Activity, BlockingItem, CompileResult, FactKind, Reason, Requester, Resolver } from "@/lib/compiler/types";
 import { formatINR } from "@/components/ui";
@@ -64,6 +65,8 @@ export function PlanCard({ view, lang, onCallVenue }: { view: View; lang: Lang; 
       /* keep the last good plan on a flaky network */
     }
   }, [view.wedding.id]);
+  // Live: another phone changed something → refetch within a second (polling remains the fallback).
+  useWeddingLive(view.wedding.id, load);
 
   useEffect(() => {
     const first = setTimeout(load, 0);

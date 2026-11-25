@@ -268,6 +268,24 @@ export type WeddingView = NonNullable<Awaited<ReturnType<typeof weddingView>>>;
 
 export async function logEvent(weddingId: string, memberId: string | null, kind: string, payload: Record<string, unknown>) {
   await db().from("events").insert({ wedding_id: weddingId, actor_member_id: memberId, kind, payload });
+  await pingWedding(weddingId, kind);
+}
+
+/**
+ * Issue #2: tell every open phone of this wedding that something changed (Supabase Realtime
+ * broadcast). The message carries no wedding data, only the event kind; each phone then refetches
+ * through the authenticated API, so privacy rules still apply. Best effort, never throws.
+ */
+export async function pingWedding(weddingId: string, kind = "changed") {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return;
+  await fetch(`${url}/realtime/v1/api/broadcast`, {
+    method: "POST",
+    headers: { apikey: key, authorization: `Bearer ${key}`, "content-type": "application/json" },
+    body: JSON.stringify({ messages: [{ topic: `wedding-${weddingId}`, event: "changed", payload: { kind } }] }),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
 }
 
 export class HttpError extends Error {

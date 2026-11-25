@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { base, type BaseLang, type Lang } from "@/lib/i18n";
 import { api, haptic } from "@/lib/client/telegram";
+import { useWeddingLive } from "@/lib/client/live";
 
 interface Run {
   id: string;
@@ -103,6 +104,7 @@ export function AgentFeed({ weddingId, lang, groupLink }: { weddingId: string; l
   const [checking, setChecking] = useState(false);
 
   const load = useCallback(() => api<{ runs: Run[] }>(`/api/agent?wedding=${weddingId}`).then((r) => setRuns(r.runs)).catch(() => {}), [weddingId]);
+  useWeddingLive(weddingId, load);
 
   useEffect(() => {
     const first = setTimeout(load, 0);

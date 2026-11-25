@@ -72,17 +72,9 @@ The Azure worker leases saved vendor answers from Postgres. A stopped worker lea
 Existing inline deployments can keep their API-key incident reporting, agent-failure alerts and approved recovery endpoint. The Azure workflows use a separate integration webhook.
 
 
-## Demo script (≈4 min)
+## Live test
 
-1. **Two families, two languages.** Meera creates the wedding in Marathi and adds "Tilak". Riya joins the other family in Tamil, and the whole app is in Tamil.
-2. **Family group.** In Aai's family Telegram group: "Mama says dinner must be by 8, the elders can't wait." The agent saves it as a private Patil-family note credited to Mama. Then "@vivaah_bot what does a Sangeet DJ cost in Pune?" gets an answer with links (Firecrawl).
-3. **The conflict.** The plan shows the cousins' dance clashing with dinner, blocked on the venue's music cutoff.
-4. **The call.** Aai taps *Call the venue* (Sarvam). The venue says "Music till ten… actually, make it ten-thirty." The correction wins, every phone updates, and 3 options appear, ranked by Flagsmith policy v2.
-5. **Flagsmith live.** Switch `compiler_policy` to `lowest_confirmed_cost`. The ranking reorders, and the footer shows the new policy version.
-6. **Decide.** Each family responds, and Meera approves option 1. An approval from an outdated screen is rejected. Aai hears the Bulbul recap in Marathi.
-7. **NudgeBee.** Turn `result_processing_paused` on, and another call result is stored but not applied. The NudgeBee incident appears with its evidence. Approve the recovery: the flag flips, the answer is applied once, and the event resolves.
-
-Re-run the whole story against any deployment with `node web/scripts/e2e-demo.mjs https://vivaahmesh.vercel.app`.
+Run the whole flow against a deployment (signed Telegram users, a throwaway wedding): `node web/scripts/e2e-live.mjs https://vivaahmesh.vercel.app`.
 
 ## Setup from a fresh checkout
 
@@ -128,7 +120,7 @@ web/src/app/tg              Telegram Mini App            web/src/lib/compiler   
 web/src/app/api/*           JSON API, bot + Sarvam webhooks, agent, ops endpoints
 web/src/lib/server/agent.ts Always-on GLM agent (tools, privacy rules, heartbeat, family groups)
 web/src/lib/server/*        Sarvam, Flagsmith, NudgeBee, Firecrawl, plan, calls, translate
-web/scripts                 flagsmith-setup, flag, nudgebee-setup, e2e-demo
+web/scripts                 flagsmith-setup, flag, nudgebee-setup, e2e-live
 supabase/migrations         Schema and atomic RPCs (record_revision, approve_revision, apply_call_evidence…)
 ```
 

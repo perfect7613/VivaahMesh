@@ -6,6 +6,7 @@ import { Chip, FallbackButton, Field, Petals, PrivacySwitch, inputClass, formatI
 import { TelegramIcon, WhatsAppIcon } from "@/components/landing/BrandIcons";
 import { InvitationCard, formatDate } from "./InvitationCard";
 import { FunctionSheet } from "./FunctionSheet";
+import { PlannerScreen } from "./PlannerScreen";
 import { PlanCard } from "./PlanCard";
 import { FamilyVoice } from "./FamilyVoice";
 import { CallScreen } from "./CallScreen";
@@ -28,6 +29,7 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
   const on = view.flags.on;
   const [adding, setAdding] = useState(false);
   const [editingFn, setEditingFn] = useState<View["functions"][number] | "new" | null>(null);
+  const [planner, setPlanner] = useState(false);
   const canEdit = view.me.isCouple || view.me.role === "parent";
   const [calling, setCalling] = useState(initialScreen === "call" && (view.me.isCouple || view.me.role === "parent"));
   const [copied, setCopied] = useState<string | null>(null);
@@ -56,6 +58,7 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
   }
   if (view.me.isCouple && !view.wedding.date) tasks.push({ key: "date", label: t.taskSetDate });
 
+  if (planner) return <PlannerScreen view={view} onClose={() => setPlanner(false)} />;
   if (editingFn) {
     return (
       <FunctionSheet
@@ -209,6 +212,15 @@ export function Home({ view, setView, botUsername, celebrate, initialScreen }: {
           {view.functions.some((fn) => fn.kind === "sangeet") ? (
             <FamilyVoice key={`family-voice:${view.wedding.id}`} weddingId={view.wedding.id} lang={lang} />
           ) : null}
+
+          <button type="button" onClick={() => setPlanner(true)} className="pressable mt-6 flex w-full items-center gap-3 rounded-3xl border border-line bg-card px-5 py-4 text-left">
+            <span aria-hidden className="text-2xl">🗂️</span>
+            <span className="flex-1">
+              <span className="block font-display text-[19px]">Planner</span>
+              <span className="block text-[13px] text-muted">Tasks · vendors &amp; spend · guests &amp; RSVPs · registry</span>
+            </span>
+            <span aria-hidden className="text-xl text-muted">›</span>
+          </button>
 
           {on.home_team_section ? (
             <Section title={t.teamHandling}>

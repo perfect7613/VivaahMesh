@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "experiment": "WRITE_EXPERIMENT_REPORT=1 vitest run src/lib/experiment"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.2",

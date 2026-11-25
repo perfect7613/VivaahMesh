@@ -1,5 +1,5 @@
-// End-to-end check of the demo story against a deployment, with signed Telegram initData.
-//   node scripts/e2e-demo.mjs https://vivaahmesh.vercel.app
+// End-to-end live check against a deployment, with signed Telegram initData.
+//   node scripts/e2e-live.mjs https://vivaahmesh.vercel.app
 // Creates a throwaway wedding (Telegram ids 9100000xx) and deletes it at the end.
 import { createHmac } from "node:crypto";
 
