@@ -7,7 +7,7 @@ import { appUrl, escapeHtml, sendWithApp } from "./telegram-bot";
 import { liveFactIds } from "@/lib/plan-input";
 import { runAgent } from "./agent";
 import { parseClock } from "@/lib/clock";
-import { pickLang, type BaseLang } from "@/lib/i18n";
+import { base, pickLang, type BaseLang } from "@/lib/i18n";
 import { localized } from "./translate";
 
 /**
@@ -72,7 +72,16 @@ const QUESTION: Record<string, (fn: string) => string> = {
   clarify_scope: (fn) => `For the ${fn} evening, the cousins' 20-minute dance is planned near the end. By what time must amplified music stop, and does that apply to the whole event?`,
 };
 
-async function requireAuthorizer(tgUserId: number, weddingId?: string) {
+export function browserCallDetails(prompt: string | null | undefined) {
+  const callerPrompt = prompt === "clarify_scope" ? "clarify_scope" : "baseline";
+  return {
+    callerPrompt,
+    recipientName: process.env.DEMO_VENUE_NAME?.trim() || "Venue owner",
+    purpose: QUESTION[callerPrompt]("Sangeet"),
+  };
+}
+
+export async function requireAuthorizer(tgUserId: number, weddingId?: string) {
   const me = (await memberships(tgUserId)).find((m) => !weddingId || m.wedding_id === weddingId);
   if (!me) throw new HttpError(403, "not_a_member");
   if (!me.is_couple && me.role !== "parent") throw new HttpError(403, "parents_or_couple_only");
@@ -85,6 +94,7 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
   const venue = demoVenue();
   const flags = await flagsForMember(me);
   const variant = flags.features.caller_prompt.value || "baseline";
+  const browserEnabled = flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser";
   const last = await db()
     .from("calls")
     .select("id, status, created_at, error, processed_at, recipient_name")
@@ -92,15 +102,18 @@ export async function callPreview(tgUserId: number, weddingId?: string) {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  const browser = browserEnabled ? browserCallDetails(variant) : null;
   return {
+    browserRecipient: browser?.recipientName,
     recipient: venue
       ? { name: venue.name, phone: maskPhone(venue.phone), language: venue.language, role: venue.role }
       : rehearsal()
         ? { name: "Shubh Mangal Lawns (rehearsal)", phone: "no phone call", language: "Hindi", role: "venue_owner" }
         : null,
-    purpose: (QUESTION[variant] ?? QUESTION.baseline)("Sangeet"),
-    callerPrompt: variant,
+    purpose: browser?.purpose ?? (QUESTION[variant] ?? QUESTION.baseline)("Sangeet"),
+    callerPrompt: browser?.callerPrompt ?? variant,
     dialingEnabled: await killSwitch("outbound_dialing_enabled"),
+    browserEnabled,
     configured: (!!sarvamConfig() && !!venue) || rehearsal(),
     rehearsal: !sarvamConfig() && rehearsal(),
     lastCall: last.data,
@@ -115,6 +128,9 @@ export async function authorizeCall(tgUserId: number, weddingId?: string) {
   if (!venue || (!cfg && !isRehearsal)) throw new HttpError(503, "calling_not_configured");
 
   const flags = await flagsForMember(me);
+  if (flags.features.voice_channel.enabled && flags.features.voice_channel.value === "browser") {
+    throw new HttpError(409, "browser_mode_active");
+  }
   const variant = flags.features.caller_prompt.value || "baseline";
   const dialing = await killSwitch("outbound_dialing_enabled");
   const s = db();
@@ -238,7 +254,13 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
     return c?.result ? "already" : "no_result";
   }
   try {
-    const f = factFromResult(claimed.result as SarvamWebhook);
+    const payload = claimed.result as SarvamWebhook;
+    const f = factFromResult(payload);
+    if (claimed.flags?.channel === "browser" && f.status === "confirmed") {
+      // Browser evidence uses fixed 24-hour HH:MM. The shared phone parser treats bare evening hours as PM.
+      const [hours, minutes] = String(payload.final_agent_variables?.music_cutoff).split(":").map(Number);
+      if (Number.isInteger(hours) && Number.isInteger(minutes)) f.value = hours * 60 + minutes;
+    }
     const { data: prior } = await s
       .from("facts")
       .select("id, supersedes")
@@ -254,8 +276,8 @@ export async function processCallResult(callId: string): Promise<"applied" | "pa
         function_kind: claimed.function_kind,
         value: f.value,
         status: f.status,
-        // A rehearsal answer is labelled as seeded data, never as a real vendor call.
-        channel: (claimed.flags as { channel?: string })?.channel === "rehearsal" ? "seed" : "samvaad_call",
+        channel: claimed.flags?.channel === "browser" ? "browser_agent"
+          : claimed.flags?.channel === "rehearsal" ? "seed" : "samvaad_call",
         ref: claimed.provider_attempt_id ?? claimed.id,
         wording: (claimed.flags as { channel?: string })?.channel === "rehearsal" ? `[Rehearsal] ${f.wording}` : f.wording,
         supersedes: f.status === "confirmed" ? liveFactIds(prior ?? []) : [],
@@ -304,7 +326,7 @@ async function notifyCallResult(weddingId: string, minute: number | null, confir
     (members ?? [])
       .filter((m) => m.tg_user_id)
       .map((m) => {
-        const lang = pickLang(m.language);
+        const lang = base(pickLang(m.language));
         const tt = time ? escapeHtml(time) : null;
         return Promise.all([
           localized({ en: resultCopy.en(tt), hi: resultCopy.hi(tt), mr: resultCopy.mr(tt) }, lang),

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { tr, type Lang } from "@/lib/i18n";
+import { base, tr, type Lang } from "@/lib/i18n";
 import { api, haptic, useBackButton, useMainButton } from "@/lib/client/telegram";
 import { FallbackButton } from "@/components/ui";
 import type { View } from "./types";
@@ -11,6 +11,8 @@ interface Preview {
   callerPrompt: string;
   dialingEnabled: boolean;
   configured: boolean;
+  browserEnabled: boolean;
+  browserRecipient?: string;
   rehearsal?: boolean;
   lastCall: { id: string; status: string; error: string | null; processed_at: string | null } | null;
 }
@@ -24,6 +26,7 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [callId, setCallId] = useState<string | null>(null);
+  const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const status = preview?.lastCall && preview.lastCall.id === callId ? preview.lastCall : null;
   const done = status && (status.processed_at || ["no_answer", "failed", "blocked"].includes(status.status));
@@ -48,21 +51,45 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
   }, [status?.processed_at]);
 
   async function authorize() {
+    setError(null);
     setBusy(true);
     try {
+      if (preview?.browserEnabled) {
+        const { callId, url } = await api<{ callId: string; url: string }>("/api/calls/browser-invite", {
+          body: {
+            weddingId: view.wedding.id, authorize: true,
+            recipientName: preview.browserRecipient, purpose: preview.purpose, callerPrompt: preview.callerPrompt,
+          },
+        });
+        setCallId(callId);
+        setBrowserUrl(url);
+        haptic.tap();
+        return;
+      }
       const { call } = await api<{ call: { id: string; status: string } }>("/api/calls", { body: { weddingId: view.wedding.id } });
       setCallId(call.id);
       haptic.tap();
     } catch (e) {
-      setError((e as Error).message);
+      const message = (e as Error).message;
+      setError(message);
+      if (message === "browser_preview_changed" || message === "browser_mode_disabled") {
+        const current = await api<Preview>(`/api/calls?wedding=${view.wedding.id}`).catch(() => null);
+        if (current) setPreview(current);
+      }
       haptic.error();
     } finally {
       setBusy(false);
     }
   }
 
-  const canAuthorize = !!preview?.configured && !!preview.recipient && !callId;
-  useMainButton(callId ? t.backToPlan : t.callAuthorize, callId ? onClose : authorize, { enabled: callId ? true : canAuthorize, loading: busy, visible: !!preview });
+  const browserCopy = {
+    en: { authorize: "Authorize browser call", recipient: "Browser link", changed: "Call details changed. Review them and authorize again.", share: "Share this link with the venue owner so they can consent and speak." },
+    hi: { authorize: "ब्राउज़र कॉल की अनुमति दें", recipient: "ब्राउज़र लिंक", changed: "कॉल की जानकारी बदल गई है। देखकर फिर से अनुमति दें।", share: "यह लिंक वेन्यू मालिक को भेजें ताकि वे सहमति देकर बात कर सकें।" },
+    mr: { authorize: "ब्राउझर कॉलला परवानगी द्या", recipient: "ब्राउझर लिंक", changed: "कॉलचे तपशील बदलले. ते पाहून पुन्हा परवानगी द्या.", share: "कार्यक्रमस्थळाच्या मालकाला हा दुवा पाठवा, म्हणजे ते संमती देऊन बोलू शकतील." },
+  }[base(lang)];
+  const authorizeLabel = preview?.browserEnabled ? browserCopy.authorize : t.callAuthorize;
+  const canAuthorize = !!preview && (preview.browserEnabled || (preview.configured && !!preview.recipient)) && !callId;
+  useMainButton(callId ? t.backToPlan : authorizeLabel, callId ? onClose : authorize, { enabled: callId ? true : canAuthorize, loading: busy, visible: !!preview });
   useBackButton(onClose);
 
   const statusLine =
@@ -83,25 +110,25 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
 
         {error ? (
           <p className="mb-5 rounded-2xl border border-sindoor/40 bg-sindoor/10 px-4 py-3 text-[15px]">
-            {error === "parents_or_couple_only" ? t.callOnlyParents : error === "calling_not_configured" ? t.callNotSetUp : t.callFailed}
+            {error === "browser_preview_changed" || error === "browser_mode_disabled" ? browserCopy.changed : error === "parents_or_couple_only" ? t.callOnlyParents : error === "calling_not_configured" ? t.callNotSetUp : t.callFailed}
           </p>
         ) : null}
 
         {preview ? (
           <>
-            {preview.rehearsal ? (
+            {preview.rehearsal && !preview.browserEnabled ? (
               <p className="mb-4 rounded-2xl border border-dashed border-marigold/70 bg-marigold-soft px-4 py-3 text-[14px]">
                 🎭 Rehearsal: no phone will ring. A simulated venue answers through the same pipeline, and everything it adds is labelled as rehearsal.
               </p>
             ) : null}
             <dl className="overflow-hidden rounded-3xl border border-line bg-card">
-              <Row label={t.callWho} value={preview.recipient ? `${preview.recipient.name} · ${preview.recipient.phone}` : t.callNotSetUp} />
+              <Row label={t.callWho} value={preview.browserEnabled ? `${preview.browserRecipient} · ${browserCopy.recipient}` : preview.recipient ? `${preview.recipient.name} · ${preview.recipient.phone}` : t.callNotSetUp} />
               <Row label={t.callAsk} value={`“${preview.purpose}”`} border />
-              <Row label={t.callLanguage} value={preview.recipient?.language ?? "—"} border />
+              <Row label={t.callLanguage} value={preview.browserEnabled ? "—" : preview.recipient?.language ?? "—"} border />
               <Row label={t.callVariant} value={preview.callerPrompt} border mono />
             </dl>
 
-            {!preview.dialingEnabled ? (
+            {!preview.browserEnabled && !preview.dialingEnabled ? (
               <p className="mt-4 flex items-start gap-2 rounded-2xl border border-line bg-card px-4 py-3 text-[14px] text-body">
                 <span aria-hidden>⛔</span>
                 <span>
@@ -110,7 +137,14 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
               </p>
             ) : null}
 
-            {statusLine ? (
+            {browserUrl ? (
+              <div className="mt-4 space-y-2 rounded-2xl border border-line bg-card p-4">
+                <p>{browserCopy.share}</p>
+                <input className="w-full rounded-lg border border-line px-2 py-2 text-sm" aria-label={browserCopy.share} value={browserUrl} readOnly
+                  onFocus={(event) => event.currentTarget.select()} />
+              </div>
+            ) : null}
+            {statusLine && (!browserUrl || done) ? (
               <div className="mt-6 flex items-center gap-3 rounded-3xl border border-marigold/50 bg-marigold-soft px-5 py-4" aria-live="polite">
                 {!done ? (
                   <span className="relative flex size-3 shrink-0" aria-hidden>
@@ -131,7 +165,7 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
           <div className="h-48 animate-pulse rounded-3xl bg-card" />
         )}
 
-        <FallbackButton text={callId ? t.backToPlan : t.callAuthorize} onClick={callId ? onClose : authorize} enabled={callId ? true : canAuthorize} loading={busy} />
+        <FallbackButton text={callId ? t.backToPlan : authorizeLabel} onClick={callId ? onClose : authorize} enabled={callId ? true : canAuthorize} loading={busy} />
       </main>
     </div>
   );
