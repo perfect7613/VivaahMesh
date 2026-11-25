@@ -130,7 +130,7 @@ export async function killSwitch(name: "outbound_dialing_enabled" | "result_proc
 }
 
 /** Flags for a member row (wedding stage and household side are looked up). */
-export async function flagsForMember(me: { id: string; wedding_id: string; household_id: string | null; language: string; role: string; is_couple: boolean }, callId?: string) {
+export async function flagsForMember(me: { id: string; wedding_id: string; household_id: string | null; language: string; role: string; is_couple: boolean }) {
   const s = db();
   const [w, h] = await Promise.all([
     s.from("weddings").select("stage").eq("id", me.wedding_id).single(),
@@ -144,5 +144,5 @@ export async function flagsForMember(me: { id: string; wedding_id: string; house
     role: me.role,
     isCouple: me.is_couple,
     weddingStage: w.data?.stage ?? "brief",
-  }, callId ? `wedding:${me.wedding_id}:call:${callId}` : undefined);
+  });
 }

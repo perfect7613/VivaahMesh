@@ -80,14 +80,14 @@ export function BrowserCall({ config, token, lang, spokenLanguage, functionKind,
   async function saveResult(id: string) {
     setPhase("saving");
     try {
-      for (const delay of [0, 1_000, 2_000, 4_000, 6_000]) {
+      for (const delay of [0, 2_000, 4_000, 8_000, 15_000, 15_000, 20_000]) {
         if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay));
         if (!mounted.current) return;
         const response = await fetch(`/api/calls/consent/${encodeURIComponent(token)}/browser-result`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ interactionId: id }),
-          signal: AbortSignal.timeout(15_000),
+          signal: AbortSignal.timeout(25_000),
         });
         if (response.ok) {
           storeResult(storageKey, null);

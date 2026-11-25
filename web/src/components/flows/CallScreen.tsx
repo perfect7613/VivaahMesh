@@ -12,6 +12,7 @@ interface Preview {
   dialingEnabled: boolean;
   configured: boolean;
   browserEnabled: boolean;
+  browserRecipient?: string;
   rehearsal?: boolean;
   lastCall: { id: string; status: string; error: string | null; processed_at: string | null;
     follow_up_count: number | null; fact: { status: string; wording: string } | null } | null;
@@ -29,7 +30,9 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const status = preview?.lastCall && (!callId || preview.lastCall.id === callId) ? preview.lastCall : null;
-  const done = status && (status.processed_at || ["no_answer", "failed", "blocked"].includes(status.status));
+  const open = status?.fact?.status === "unresolved" || status?.status === "no_answer" || status?.status === "failed";
+  const reported = status?.processed_at || status?.status === "blocked";
+  const done = reported || open;
 
   useEffect(() => {
     let alive = true;
@@ -38,24 +41,28 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
         .then((p) => alive && setPreview(p))
         .catch((e: Error) => alive && setError(e.message));
     load();
-    if (!callId || done) return () => void (alive = false);
+    if ((!callId && !status?.id) || reported) return () => void (alive = false);
     const id = setInterval(load, 2500);
     return () => {
       alive = false;
       clearInterval(id);
     };
-  }, [view.wedding.id, callId, done]);
+  }, [view.wedding.id, callId, reported, status?.id]);
 
   useEffect(() => {
     if (status?.processed_at) haptic.success();
   }, [status?.processed_at]);
 
   async function authorize() {
+    setError(null);
     setBusy(true);
     try {
       if (preview?.browserEnabled) {
         const { callId, url } = await api<{ callId: string; url: string }>("/api/calls/browser-invite", {
-          body: { weddingId: view.wedding.id, authorize: true },
+          body: {
+            weddingId: view.wedding.id, authorize: true,
+            recipientName: preview.browserRecipient, purpose: preview.purpose, callerPrompt: preview.callerPrompt,
+          },
         });
         setCallId(callId);
         setBrowserUrl(url);
@@ -63,10 +70,16 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
         return;
       }
       const { call } = await api<{ call: { id: string; status: string } }>("/api/calls", { body: { weddingId: view.wedding.id } });
+      setBrowserUrl(null);
       setCallId(call.id);
       haptic.tap();
     } catch (e) {
-      setError((e as Error).message);
+      const message = (e as Error).message;
+      setError(message);
+      if (message === "browser_preview_changed" || message === "browser_mode_disabled") {
+        const current = await api<Preview>(`/api/calls?wedding=${view.wedding.id}`).catch(() => null);
+        if (current) setPreview(current);
+      }
       haptic.error();
     } finally {
       setBusy(false);
@@ -74,14 +87,14 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
   }
 
   const followUpCopy = {
-    en: { count: "Follow-up questions", callback: "Authorize a callback" },
-    hi: { count: "अतिरिक्त सवाल", callback: "दोबारा कॉल करने की अनुमति दें" },
-    mr: { count: "पुढील प्रश्न", callback: "पुन्हा कॉल करण्यास परवानगी द्या" },
+    en: { count: "Follow-up questions", open: "The venue enquiry is still open.", callback: "Authorize a callback" },
+    hi: { count: "अतिरिक्त सवाल", open: "वेन्यू से पूछा गया सवाल अभी खुला है।", callback: "दोबारा कॉल करने की अनुमति दें" },
+    mr: { count: "पुढील प्रश्न", open: "कार्यक्रमस्थळाला विचारलेला प्रश्न अजून खुला आहे.", callback: "पुन्हा कॉल करण्यास परवानगी द्या" },
   }[base(lang)];
   const browserCopy = {
-    en: { authorize: "Authorize browser call", recipient: "Venue owner · browser link", share: "Share this link with the venue owner so they can consent and speak." },
-    hi: { authorize: "ब्राउज़र कॉल की अनुमति दें", recipient: "वेन्यू मालिक · ब्राउज़र लिंक", share: "यह लिंक वेन्यू मालिक को भेजें ताकि वे सहमति देकर बात कर सकें।" },
-    mr: { authorize: "ब्राउझर कॉलला परवानगी द्या", recipient: "कार्यक्रमस्थळाचे मालक · ब्राउझर लिंक", share: "कार्यक्रमस्थळाच्या मालकाला हा दुवा पाठवा, म्हणजे ते संमती देऊन बोलू शकतील." },
+    en: { authorize: "Authorize browser call", recipient: "Browser link", changed: "Call details changed. Review them and authorize again.", share: "Share this link with the venue owner so they can consent and speak." },
+    hi: { authorize: "ब्राउज़र कॉल की अनुमति दें", recipient: "ब्राउज़र लिंक", changed: "कॉल की जानकारी बदल गई है। देखकर फिर से अनुमति दें।", share: "यह लिंक वेन्यू मालिक को भेजें ताकि वे सहमति देकर बात कर सकें।" },
+    mr: { authorize: "ब्राउझर कॉलला परवानगी द्या", recipient: "ब्राउझर लिंक", changed: "कॉलचे तपशील बदलले. ते पाहून पुन्हा परवानगी द्या.", share: "कार्यक्रमस्थळाच्या मालकाला हा दुवा पाठवा, म्हणजे ते संमती देऊन बोलू शकतील." },
   }[base(lang)];
   const authorizeLabel = preview?.browserEnabled ? browserCopy.authorize : t.callAuthorize;
   const canAuthorize = !!preview && (preview.browserEnabled || (preview.configured && !!preview.recipient)) && !callId;
@@ -91,9 +104,10 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
   const statusLine =
     !status ? null
     : status.status === "blocked" ? t.callStatusBlocked
-    : status.processed_at ? t.callDone
     : status.status === "no_answer" ? t.callNoAnswer
     : status.status === "failed" ? t.callFailed
+    : open ? followUpCopy.open
+    : status.processed_at ? t.callDone
     : t.callDialing;
 
   return (
@@ -106,7 +120,7 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
 
         {error ? (
           <p className="mb-5 rounded-2xl border border-sindoor/40 bg-sindoor/10 px-4 py-3 text-[15px]">
-            {error === "parents_or_couple_only" ? t.callOnlyParents : error === "calling_not_configured" ? t.callNotSetUp : t.callFailed}
+            {error === "browser_preview_changed" || error === "browser_mode_disabled" ? browserCopy.changed : error === "parents_or_couple_only" ? t.callOnlyParents : error === "calling_not_configured" ? t.callNotSetUp : t.callFailed}
           </p>
         ) : null}
 
@@ -118,9 +132,9 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
               </p>
             ) : null}
             <dl className="overflow-hidden rounded-3xl border border-line bg-card">
-              <Row label={t.callWho} value={preview.browserEnabled ? browserCopy.recipient : preview.recipient ? `${preview.recipient.name} · ${preview.recipient.phone}` : t.callNotSetUp} />
+              <Row label={t.callWho} value={preview.browserEnabled ? `${preview.browserRecipient} · ${browserCopy.recipient}` : preview.recipient ? `${preview.recipient.name} · ${preview.recipient.phone}` : t.callNotSetUp} />
               <Row label={t.callAsk} value={`“${preview.purpose}”`} border />
-              <Row label={t.callLanguage} value={preview.recipient?.language ?? "—"} border />
+              <Row label={t.callLanguage} value={preview.browserEnabled ? "—" : preview.recipient?.language ?? "—"} border />
               <Row label={t.callVariant} value={preview.callerPrompt} border mono />
             </dl>
 
@@ -148,7 +162,7 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
                     <span className="relative inline-flex size-3 rounded-full bg-sindoor" />
                   </span>
                 ) : (
-                  <span aria-hidden>{status?.processed_at ? "✓" : "•"}</span>
+                  <span aria-hidden>{status?.processed_at && !open ? "✓" : "•"}</span>
                 )}
                 <div>
                   <p className="font-medium">{statusLine}</p>
@@ -164,7 +178,7 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
         {status?.processed_at && status.follow_up_count !== null ? (
           <p className="mt-4 text-sm text-muted">{followUpCopy.count} · {status.follow_up_count}</p>
         ) : null}
-        {status?.processed_at && status.fact?.status === "unresolved" && (preview?.configured || preview?.browserEnabled) ? (
+        {open && (preview?.configured || preview?.browserEnabled) ? (
           <button type="button" disabled={busy} onClick={() => { void authorize(); }}
             className="pressable mt-4 min-h-11 rounded-xl border border-line bg-card px-4 py-2">
             {followUpCopy.callback}

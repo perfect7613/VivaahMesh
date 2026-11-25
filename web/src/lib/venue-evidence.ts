@@ -182,7 +182,7 @@ export function venueEvidence(input: VenueEvidence): Fact[] {
   const scopedFunction = variables.cutoff_function;
   const scopedDate = variables.cutoff_date;
   const functionMatches = scopedFunction == null || scopedFunction === functionKind;
-  const dateMatches = scopedDate == null || (typeof scopedDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(scopedDate) && (!input.functionDate || scopedDate === input.functionDate));
+  const dateMatches = scopedDate == null || (typeof scopedDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(scopedDate) && scopedDate === input.functionDate);
   const caseScope = scope === "whole_function" || scope === "whole_event";
   const confirmedScope = scope === "amplified_music" || (caseScope && (
     scopedFunction === functionKind || (anchor >= 0 && namedFunctions(transcript[anchor].text).includes(functionKind))

@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { BaseLang as Lang } from "@/lib/i18n";
+import { dictatedDinnerTime } from "@/lib/family-plan";
 import { HttpError } from "./weddings";
 
 const MAX_AUDIO_BYTES = 3 * 1024 * 1024;
@@ -50,13 +51,15 @@ export async function dictateClip(audio: File, lang: Lang) {
   form.append("file", audio, audio.name);
   form.append("language_code", CODE[lang]);
   form.append("mode", "transcribe");
+  form.append("output_rules", 'Return only a JSON object with one key "dinner_time". Its value is the requested dinner start time as HH:mm in ASCII digits using the 24-hour clock. Return null if the dinner start time or time of day is unclear.');
   const output = await modelJson("/v2/dictate", form);
   const transcript = typeof output.transcript === "string" ? output.transcript.trim() : "";
   const text = typeof output.text === "string" ? output.text.trim() : "";
   if (!transcript || !text || transcript.length > 4000 || text.length > 4000) {
     throw new HttpError(422, "dictate_no_short_transcript");
   }
-  return { text, transcript, degraded: typeof output.degraded === "string" && !!output.degraded };
+  const extracted = output.output as { text?: unknown } | null | undefined;
+  return { text, transcript, dinnerTime: dictatedDinnerTime(extracted?.text) };
 }
 
 export async function bulbulRecap(text: string, lang: Lang) {

@@ -21,6 +21,16 @@ const formatter = (lang: Lang) => new Intl.DateTimeFormat(LOCALE[base(lang)], {
   hour: "numeric", minute: "2-digit", timeZone: "UTC", hourCycle: "h12",
 });
 
+export function dictatedDinnerTime(text: unknown): string | null {
+  if (typeof text !== "string") return null;
+  try {
+    const time = JSON.parse(text)?.dinner_time;
+    return typeof time === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : null;
+  } catch {
+    return null;
+  }
+}
+
 export function planTime(minute: number, lang: Lang) {
   return formatter(lang).format(new Date(minute * 60_000));
 }
@@ -59,7 +69,7 @@ export function applyFamilyRequirements(snapshot: Snapshot, requirements: Family
     activities: snapshot.activities.map((activity) => {
       if (activity.kind !== "dance" || !activity.flexible) return activity;
       const duration = requirements.find((item) => item.kind === "dance_duration" && item.functionKind === activity.functionKind);
-      if (!duration || activity.start + duration.value > 1440) return activity;
+      if (!duration) return activity;
       return { ...activity, end: activity.start + duration.value,
         requestedBy: duration.author ? { side: "B" as const, memberName: duration.author, priority: "prefer" as const } : activity.requestedBy };
     }),

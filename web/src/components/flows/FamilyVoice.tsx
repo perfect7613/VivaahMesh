@@ -78,16 +78,17 @@ export function FamilyVoice({ weddingId, lang }: { weddingId: string; lang: Lang
   const [audio, setAudio] = useState<{ revision: number; url: string } | null>(null);
   const recorder = useRef<VoiceRecording | null>(null);
   const recorderGeneration = useRef(0);
-  const fallback = useRef(0);
+  const pollGeneration = useRef(0);
 
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     const load = async () => {
       if (document.visibilityState === "visible") {
+        const generation = pollGeneration.current;
         try {
           const next = await api<VoiceView>(`/api/family-voice?wedding=${encodeURIComponent(weddingId)}`);
-          if (active) setView(next);
+          if (active && generation === pollGeneration.current) setView(next);
         } catch {
           // Keep the last successful projection during temporary network failure.
         }
@@ -118,10 +119,11 @@ export function FamilyVoice({ weddingId, lang }: { weddingId: string; lang: Lang
     form.set("audio", file);
     form.set("language", "mr");
     form.set("weddingId", weddingId);
-    const result = await api<{ text: string; draftToken: string }>("/api/family-voice/dictate", { body: form });
+    const result = await api<{ text: string; draftToken: string; dinnerTime: string | null }>("/api/family-voice/dictate", { body: form });
     setDraft((previous) => previous && {
       ...previous,
       note: result.text,
+      value: result.dinnerTime ?? "",
       provenance: { draftToken: result.draftToken },
     });
   }
@@ -170,6 +172,7 @@ export function FamilyVoice({ weddingId, lang }: { weddingId: string; lang: Lang
         weddingId, functionKind: "sangeet", kind: editable, value, note: draft.note,
         expectedVersion: draft.version, ...draft.provenance,
       } });
+      pollGeneration.current++;
       setView((prev) => prev && { ...prev, requirements: result.requirements });
       setDraft(null);
     } catch (error) {
@@ -180,11 +183,10 @@ export function FamilyVoice({ weddingId, lang }: { weddingId: string; lang: Lang
   async function play(revision: number) {
     setBusy(true);
     setError("");
-    const request = ++fallback.current;
     try {
       const result = await api<{ audio: string; revision: number }>("/api/family-voice/recap", { body: { weddingId, revision } });
       const bytes = Uint8Array.from(atob(result.audio), (char) => char.charCodeAt(0));
-      if (request === fallback.current) setAudio({ revision: result.revision, url: URL.createObjectURL(new Blob([bytes], { type: "audio/wav" })) });
+      setAudio({ revision: result.revision, url: URL.createObjectURL(new Blob([bytes], { type: "audio/wav" })) });
     } catch { setError(t.error); } finally { setBusy(false); }
   }
 
