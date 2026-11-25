@@ -180,7 +180,7 @@ export async function weddingView(tgUserId: number, weddingId?: string) {
     s.from("households").select("id, side, name, invite_code").eq("wedding_id", me.wedding_id).order("side"),
     s.from("members").select("id, household_id, display_name, role, is_couple, is_parent_delegate").eq("wedding_id", me.wedding_id),
     s.from("functions").select("id, kind, title, sort, on_date, starts_at, venue, details").eq("wedding_id", me.wedding_id).order("sort"),
-    s.from("priorities").select("id, household_id, member_id, kind, note, visibility, source, created_at")
+    s.from("priorities").select("id, household_id, member_id, kind, note, visibility, source, author_name, transcript, created_at")
       .eq("wedding_id", me.wedding_id)
       .or(me.household_id ? `visibility.eq.shared,and(visibility.eq.household,household_id.eq.${me.household_id})` : "visibility.eq.shared")
       .order("created_at", { ascending: false }),
@@ -230,7 +230,7 @@ export async function weddingView(tgUserId: number, weddingId?: string) {
       .map((p) => {
         const author = (ms.data ?? []).find((m) => m.id === p.member_id);
         const fam = (hs.data ?? []).find((h) => h.id === p.household_id);
-        return { id: p.id, kind: p.kind, note: p.note, visibility: p.visibility, source: p.source, author: author?.display_name ?? "", family: fam?.name ?? "", createdAt: p.created_at };
+        return { id: p.id, kind: p.kind, note: p.note, visibility: p.visibility, source: p.source, author: author?.display_name ?? p.author_name ?? "", voiceTranscript: p.source === "whatsapp" && Boolean(p.transcript), family: fam?.name ?? "", createdAt: p.created_at };
       }),
   };
 }
