@@ -165,10 +165,12 @@ export async function lifecycleAction(tgUserId: number, weddingId: string | unde
       const v = await vendor(a.vendorId);
       await s.from("vendors").update({ status: "cancelled" }).eq("id", v.id);
       const due = new Date(Date.now() + 2 * 86400_000).toISOString().slice(0, 10);
-      await s.from("tasks").insert([
-        { wedding_id: W, title: `${v.name} cancelled${a.reason ? `: ${str(a.reason, 120)}` : ""}`, kind: "incident", owner_member_id: me.id, vendor_id: v.id, status: "open", escalated: true, seeded: v.seeded },
-        { wedding_id: W, title: `Find a replacement ${v.category.replace("_", " ")} for ${(v.functions as string[]).join(", ") || "the wedding"}`, kind: "replacement", owner_member_id: me.id, vendor_id: v.id, due_date: due, seeded: v.seeded },
+      // Same keys in both rows: PostgREST bulk inserts need matching columns.
+      const { error: tErr } = await s.from("tasks").insert([
+        { wedding_id: W, title: `${v.name} cancelled${a.reason ? `: ${str(a.reason, 120)}` : ""}`, kind: "incident", owner_member_id: me.id, vendor_id: v.id, due_date: null, escalated: true, seeded: v.seeded },
+        { wedding_id: W, title: `Find a replacement ${v.category.replace("_", " ")} for ${(v.functions as string[]).join(", ") || "the wedding"}`, kind: "replacement", owner_member_id: me.id, vendor_id: v.id, due_date: due, escalated: false, seeded: v.seeded },
       ]);
+      if (tErr) throw tErr;
       await logEvent(W, me.id, "vendor_cancelled", { vendor: v.name, category: v.category });
       runAgent(W, "manual", { note: `Vendor ${v.name} (${v.category}) cancelled. Tell the deciders what changes and what to do next.` }).catch((e) => console.error("agent after cancellation", e));
       break;

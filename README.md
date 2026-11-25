@@ -64,6 +64,8 @@ VivaahMesh keeps the groups and adds what they can't do:
 
 Segments: `marathi_speakers` (language = mr → Bulbul recap), `household_a` (conditional options + WhatsApp bridge), and `stage_*_plus` (wedding_stage). Identities are `wedding:<id>:member:<id>` for per-person UI, and `wedding:<id>` for anything both families must see identically (the compiler policy). If Flagsmith is down, everything falls back to safe defaults: dialing off, agent on.
 
+Caller-prompt experiment (5 scripted scenarios × 2 variants, observed counts, not a statistical claim): [`docs/caller-experiment.md`](docs/caller-experiment.md), reproduce with `cd web && npm run experiment`.
+
 Create everything with `node web/scripts/flagsmith-setup.mjs`. Flip a flag live with `node web/scripts/flag.mjs <flag> on|off|key=value`.
 
 ### NudgeBee: incident and approval-gated recovery
@@ -74,7 +76,7 @@ Existing inline deployments can keep their API-key incident reporting, agent-fai
 
 ## Live test
 
-Run the whole flow against a deployment (signed Telegram users, a throwaway wedding): `node web/scripts/e2e-live.mjs https://vivaahmesh.vercel.app`.
+Run against a deployment (signed Telegram users, throwaway weddings): `node web/scripts/e2e-live.mjs <url>` (families → call → approval → agent) and `node web/scripts/e2e-lifecycle.mjs <url>` (stages, vendors, spend, guests, RSVPs, registry race, vendor run sheet).
 
 ## Setup from a fresh checkout
 
