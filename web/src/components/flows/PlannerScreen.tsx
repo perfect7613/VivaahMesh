@@ -10,9 +10,10 @@ type L = {
   next: string | null;
   open: Record<"sourcing" | "booking" | "guests" | "day_of" | "closeout", boolean>;
   flagSource: string;
-  tasks: { id: string; title: string; kind: string; status: string; owner: string | null; due_date: string | null; canEdit: boolean; escalated: boolean; seeded: boolean; signedOffBy: string | null }[];
+  taskOwners: { id: string; name: string }[];
+  tasks: { id: string; title: string; kind: string; status: string; owner: string | null; due_date: string | null; canEdit: boolean; escalated: boolean; seeded: boolean; evidence: string | null; escalationPath: string; signedOffBy: string | null }[];
   vendors: { id: string; name: string; category: string; origin: string; functions: string[]; status: string; seeded: boolean; quote_inr: number | null; planned_inr: number | null; committed_inr: number | null; invoice_inr: number | null; paid_inr: number | null; authorizedBy: string | null; accepted_at: string | null; paid_at: string | null; viewUrl: string | null }[];
-  spend: { planned: number; committed: number; actual: number; discrepancies: { vendorId: string; name: string; committed: number; invoice: number; diff: number }[] } | null;
+  spend: { planned: number; committed: number; actual: number; discrepancies: { vendorId: string; name: string; committed: number; invoice: number; diff: number; owner: string | null }[] } | null;
   openDeliverables: number;
   functions: { id: string; title: string; kind: string }[];
   guests: { id: string; name: string; party: number; rsvpUrl: string | null; canManageLink: boolean }[];
@@ -59,10 +60,12 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
       const r = await api<{ lifecycle: L }>("/api/lifecycle", { body: { weddingId: W, action } });
       setL(r.lifecycle);
       haptic.success();
+      return true;
     } catch (e) {
       haptic.error();
       const m = (e as Error).message;
       setErr(m.startsWith("stage_locked:") ? `Locked until the wedding reaches “${STAGE_LABEL[m.split(":")[1]]}” (Flagsmith stage gate).` : m);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -70,6 +73,10 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
 
   // Small local forms
   const [task, setTask] = useState("");
+  const [taskOwner, setTaskOwner] = useState("");
+  const [taskDue, setTaskDue] = useState("");
+  const [taskEscalation, setTaskEscalation] = useState("");
+  const [taskEvidence, setTaskEvidence] = useState("");
   const [deliverable, setDeliverable] = useState(false);
   const [vName, setVName] = useState("");
   const [vCat, setVCat] = useState("caterer");
@@ -120,19 +127,42 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
                     <button aria-label="Toggle done" disabled={busy || !t.canEdit} onClick={() => act({ type: "task_status", taskId: t.id, status: t.status === "done" ? "open" : "done" })} className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border ${t.status === "done" ? "border-mehendi bg-mehendi text-white" : "border-line"}`}>{t.status === "done" ? "✓" : ""}</button>
                     <div className="min-w-0 flex-1">
                       <p className={`text-[15px] ${t.status === "done" ? "text-muted line-through" : ""}`}>{t.kind === "incident" ? "⚠️ " : t.kind === "replacement" ? "🔁 " : t.kind === "deliverable" ? "📦 " : ""}{t.title}{t.seeded ? " (sample)" : ""}</p>
-                      <p className="text-[12px] text-muted">{[t.owner && `Owner: ${t.owner}`, t.due_date && `due ${t.due_date}`, t.signedOffBy && `signed off by ${t.signedOffBy}`].filter(Boolean).join(" · ")}</p>
+                      <p className="text-[12px] text-muted">{[t.owner && `Owner: ${t.owner}`, t.status, t.due_date && `due ${t.due_date}`, t.signedOffBy && `signed off by ${t.signedOffBy}`].filter(Boolean).join(" · ")}</p>
                     </div>
                     {l.me.isCouple && l.open.closeout && !t.signedOffBy && t.status !== "done" ? <button disabled={busy} onClick={() => act({ type: "sign_off", taskId: t.id })} className={`${btn} border border-line`}>Sign off</button> : null}
                   </div>
+                  {t.evidence ? <p className="mt-2 break-words text-[13px]">Evidence · {t.evidence}</p> : null}
+                  <p className="mt-1 text-[12px] text-muted">Escalation · {t.escalationPath}</p>
+                  {t.canEdit ? <TaskUpdate key={`${t.id}:${t.status}:${t.evidence}`} task={t} busy={busy} save={act} /> : null}
                 </li>
               ))}
               {!l.tasks.length ? <li className="text-[14px] text-muted">No tasks yet.</li> : null}
             </ul>
-            <form className="mt-3 flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); if (task.trim()) act({ type: "add_task", title: task, kind: deliverable ? "deliverable" : "task" }).then(() => setTask("")); }}>
+            <form className="mt-3 flex flex-col gap-2" onSubmit={async (e) => {
+              e.preventDefault();
+              if (await act({ type: "add_task", title: task, kind: deliverable ? "deliverable" : "task",
+                ownerMemberId: taskOwner || undefined, dueDate: taskDue || undefined,
+                escalationPath: taskEscalation, evidence: taskEvidence })) {
+                setTask("");
+                setTaskOwner("");
+                setTaskDue("");
+                setTaskEscalation("");
+                setTaskEvidence("");
+              }
+            }}>
               <div className="flex gap-2">
-                <input className={`${input} flex-1`} value={task} onChange={(e) => setTask(e.target.value)} placeholder="Add a task (you own it)" maxLength={120} />
+                <input className={`${input} flex-1`} value={task} onChange={(e) => setTask(e.target.value)} placeholder="Add a task " maxLength={120} />
                 <button className={`${btn} bg-sindoor text-white`} disabled={busy || !task.trim()}>Add</button>
               </div>
+              {l.taskOwners.length > 1 ? <label className="grid gap-1 text-[13px]">Owner
+                <select className={input} value={taskOwner} onChange={(e) => setTaskOwner(e.target.value)}>
+                  <option value="">Me</option>
+                  {l.taskOwners.filter((owner) => owner.id !== l.me.id).map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}
+                </select>
+              </label> : null}
+              <label className="grid gap-1 text-[13px]">Due date <input className={input} type="date" value={taskDue} onChange={(e) => setTaskDue(e.target.value)} /></label>
+              <label className="grid gap-1 text-[13px]">Escalation <input className={input} maxLength={120} placeholder="Ask the couple" value={taskEscalation} onChange={(e) => setTaskEscalation(e.target.value)} /></label>
+              <label className="grid gap-1 text-[13px]">Evidence <textarea className={input} maxLength={300} value={taskEvidence} onChange={(e) => setTaskEvidence(e.target.value)} /></label>
               <label className="flex items-center gap-2 text-[13px] text-muted"><input type="checkbox" checked={deliverable} onChange={(e) => setDeliverable(e.target.checked)} /> It’s a deliverable (album, film…)</label>
             </form>
           </section>
@@ -147,7 +177,7 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
                 ))}
               </div>
             ) : null}
-            {l.spend?.discrepancies.map((d) => <p key={d.vendorId} className="mb-2 rounded-2xl border border-sindoor/40 bg-sindoor/10 px-4 py-2 text-[14px]">⚠️ {d.name}: invoice {inr(d.invoice)} vs approved {inr(d.committed)} ({d.diff > 0 ? "+" : ""}{inr(d.diff)})</p>)}
+            {l.spend?.discrepancies.map((d) => <p key={d.vendorId} className="mb-2 rounded-2xl border border-sindoor/40 bg-sindoor/10 px-4 py-2 text-[14px]">⚠️ {d.name}: invoice {inr(d.invoice)} vs approved {inr(d.committed)} ({d.diff > 0 ? "+" : ""}{inr(d.diff)}){d.owner ? ` · Owner: ${d.owner}` : ""}</p>)}
             {!l.open.sourcing ? <p className="rounded-2xl bg-card px-4 py-3 text-[14px] text-muted">🔒 Vendors open at the Sourcing stage.</p> : null}
             <ul className="flex flex-col gap-2">
               {l.vendors.map((v) => (
@@ -229,5 +259,33 @@ export function PlannerScreen({ view, onClose }: { view: View; onClose: () => vo
         ) : null}
       </main>
     </div>
+  );
+}
+
+
+function TaskUpdate({ task, busy, save }: {
+  task: L["tasks"][number];
+  busy: boolean;
+  save: (action: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [status, setStatus] = useState(task.status);
+  const [evidence, setEvidence] = useState(task.evidence ?? "");
+
+  return (
+    <details className="mt-2">
+      <summary className="cursor-pointer text-[13px] font-medium">Update task</summary>
+      <form className="mt-2 grid gap-2" onSubmit={(e) => {
+        e.preventDefault();
+        void save({ type: "task_status", taskId: task.id, status, evidence });
+      }}>
+        <label className="grid gap-1 text-[13px]">Status <select className={input} value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="open">Open</option>
+          <option value="blocked">Blocked</option>
+          <option value="done">Done</option>
+        </select></label>
+        <label className="grid gap-1 text-[13px]">Evidence <textarea className={input} maxLength={300} value={evidence} onChange={(e) => setEvidence(e.target.value)} /></label>
+        <button className={`${btn} border border-line`} disabled={busy}>Save task</button>
+      </form>
+    </details>
   );
 }
