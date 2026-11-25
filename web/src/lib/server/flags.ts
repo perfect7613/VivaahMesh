@@ -60,19 +60,14 @@ export interface ResolvedFlags {
   policy: CompilerPolicy;
 }
 
-export async function flagsFor(t: ViewerTraits): Promise<ResolvedFlags> {
+/** Evaluates every known flag for one Flagsmith identity, falling back to safe defaults. */
+async function resolve(identity: string, traits: Record<string, string | boolean>): Promise<ResolvedFlags> {
   const fs = flagsmith();
   const features: ResolvedFlags["features"] = {};
   let source: ResolvedFlags["source"] = "safe_defaults";
   if (fs) {
     try {
-      const flags = await fs.getIdentityFlags(`wedding:${t.weddingId}:member:${t.memberId}`, {
-        language: t.language,
-        household_side: t.householdSide ?? "",
-        role: t.role,
-        is_couple: t.isCouple,
-        wedding_stage: t.weddingStage,
-      });
+      const flags = await fs.getIdentityFlags(identity, traits);
       for (const name of Object.keys(SAFE_DEFAULTS)) {
         const v = flags.getFeatureValue(name);
         features[name] = { enabled: flags.isFeatureEnabled(name), value: v == null ? null : String(v) };
@@ -92,4 +87,23 @@ export async function flagsFor(t: ViewerTraits): Promise<ResolvedFlags> {
     /* malformed remote config: keep the default */
   }
   return { source, features, policy };
+}
+
+/** Per-member flags: UI rollouts that may legitimately differ per household, language or role. */
+export function flagsFor(t: ViewerTraits): Promise<ResolvedFlags> {
+  return resolve(`wedding:${t.weddingId}:member:${t.memberId}`, {
+    language: t.language,
+    household_side: t.householdSide ?? "",
+    role: t.role,
+    is_couple: t.isCouple,
+    wedding_stage: t.weddingStage,
+  });
+}
+
+/**
+ * Wedding-level flags, for anything both households must see identically: the compiler policy that
+ * produces a plan revision, and the snapshot stored with revisions and approvals.
+ */
+export function weddingFlags(weddingId: string, weddingStage: string): Promise<ResolvedFlags> {
+  return resolve(`wedding:${weddingId}`, { wedding_stage: weddingStage });
 }

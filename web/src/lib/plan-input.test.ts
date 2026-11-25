@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityFromRow, activityToRow, liveFactIds, parseFactInput } from "./plan-input";
+import { activityFromRow, activityToRow, canRecordFact, liveFactIds, parseFactInput } from "./plan-input";
 import { demoSangeet } from "./compiler/fixtures/demo-sangeet";
 import type { Activity } from "./compiler/types";
 
@@ -73,5 +73,18 @@ describe("activity row mapping (fix 8)", () => {
     expect(activityFromRow(row).canOverlapWith).toEqual(["dinner"]);
     expect(activityFromRow({ ...row, can_overlap_with: null }).canOverlapWith).toBeUndefined();
     expect(activityFromRow({ ...row, can_overlap_with: [] }).canOverlapWith).toBeUndefined();
+  });
+});
+
+describe("canRecordFact (finding 7)", () => {
+  it("only the couple can record a confirmed fact by hand", () => {
+    expect(canRecordFact(true, "confirmed")).toBe(true);
+    expect(canRecordFact(false, "confirmed")).toBe(false);
+  });
+  it("anyone can report a claim that still needs confirmation", () => {
+    for (const status of ["conditional", "unresolved"] as const) {
+      expect(canRecordFact(false, status)).toBe(true);
+      expect(canRecordFact(true, status)).toBe(true);
+    }
   });
 });

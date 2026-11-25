@@ -109,3 +109,13 @@ export function activityToRow(a: Activity): ActivityRow {
     priority: a.requestedBy?.priority ?? null,
   };
 }
+
+/**
+ * Who may record a fact. Anyone in the wedding can report one as `conditional` or `unresolved`
+ * (a claim waiting for confirmation), but a `confirmed` fact becomes a hard input to the plan and
+ * replaces what is on file, so only the couple can record one by hand. Vendor answers arrive
+ * through their own channels (a call, a quote), not through this route.
+ */
+export function canRecordFact(isCouple: boolean, status: Fact["status"]): boolean {
+  return status !== "confirmed" || isCouple;
+}

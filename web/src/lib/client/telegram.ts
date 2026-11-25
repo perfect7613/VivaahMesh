@@ -59,6 +59,13 @@ function devUser(): string {
   return v;
 }
 
+/** An API error that keeps the HTTP status and the JSON body (e.g. a 409 carrying the newer plan). */
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public body: unknown) {
+    super(message);
+  }
+}
+
 export async function api<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   const wa = getWebApp();
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -70,7 +77,7 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
     body: init?.body ? JSON.stringify(init.body) : undefined,
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((json as { error?: string }).error ?? `HTTP ${res.status}`);
+  if (!res.ok) throw new ApiError((json as { error?: string }).error ?? `HTTP ${res.status}`, res.status, json);
   return json as T;
 }
 

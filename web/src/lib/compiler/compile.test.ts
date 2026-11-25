@@ -303,3 +303,14 @@ describe("review fixes, round 2", () => {
     expect(compile(s, policy()).conflicts.some((c) => c.activityId === "shehnai")).toBe(false);
   });
 });
+
+describe("review fixes, issue #5 round", () => {
+  it("finding 9: the same blocker in two functions stays two items", () => {
+    const s = snap([], (x) => {
+      x.activities.push({ id: "r-dance", functionKind: "reception", title: "Reception dance", kind: "dance", start: t("20:00"), end: t("20:20"), flexible: true, requiresAmplifiedMusic: true });
+    });
+    const r = compile(s, policy({ allowDanceDuringDinner: true }));
+    const missing = r.blocking.filter((b) => b.code === "cutoff_unconfirmed");
+    expect(missing.map((b) => b.functionKind).sort()).toEqual(["reception", "sangeet"]);
+  });
+});
