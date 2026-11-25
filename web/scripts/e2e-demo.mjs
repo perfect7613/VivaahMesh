@@ -81,14 +81,14 @@ if (dialing) {
   ok(cutoff?.value === 1350 && cutoff.channel === "seed" && cutoff.wording.startsWith("[Rehearsal]"), "cutoff 10:30 pm, labelled as rehearsal");
   ok(plan.result.proposals.length > 0, `options appear: ${plan.result.proposals.length}`);
 
-  const stale = await call(meera, "/api/approvals", { weddingId: W, proposalId: plan.result.proposals[0].id, snapshotRevision: plan.snapshotRevision - 1 });
-  ok(stale.status === 409 && stale.json.error === "stale_revision", "approval from an outdated screen is rejected");
-  const notCouple = await call(aai, "/api/approvals", { weddingId: W, proposalId: plan.result.proposals[0].id, snapshotRevision: plan.snapshotRevision });
+  const stale = await call(meera, "/api/approvals", { weddingId: W, proposalId: plan.result.proposals[0].id, revision: plan.revision - 1 });
+  ok(stale.status === 409 && String(stale.json.error).startsWith("stale"), "approval from an outdated screen is rejected");
+  const notCouple = await call(aai, "/api/approvals", { weddingId: W, proposalId: plan.result.proposals[0].id, revision: plan.revision });
   ok(notCouple.status === 403, "only the couple approves");
-  const yes = await call(meera, "/api/approvals", { weddingId: W, proposalId: plan.result.proposals[0].id, snapshotRevision: plan.snapshotRevision });
-  ok(yes.status === 200 && yes.json.plan.approval?.current, "couple approves option 1");
-  const again = await call(meera, "/api/approvals", { weddingId: W, proposalId: plan.result.proposals[1]?.id ?? plan.result.proposals[0].id, snapshotRevision: plan.snapshotRevision });
-  ok(again.status === 409, "a second approval on the same revision is refused");
+  const yes = await call(meera, "/api/approvals", { weddingId: W, proposalId: plan.result.proposals[0].id, revision: plan.revision });
+  ok(yes.status === 200 && yes.json.plan.committed?.proposalId === plan.result.proposals[0].id, "couple approves option 1");
+  const again = await call(meera, "/api/approvals", { weddingId: W, proposalId: plan.result.proposals[1]?.id ?? plan.result.proposals[0].id, revision: plan.revision });
+  ok(again.status === 409, `a second approval on the old revision is refused (${again.json.error})`);
 }
 
 r = await call(aai, "/api/agent", { weddingId: W });

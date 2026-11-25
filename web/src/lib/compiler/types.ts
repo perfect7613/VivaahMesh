@@ -110,6 +110,8 @@ export interface Resolver {
 }
 
 export type BlockingItem = {
+  /** Which function (sangeet, reception, …) this is about, so the same blocker in two functions stays two items. */
+  functionKind: string;
   /** English description, for logs. */
   constraint: string;
   /** English resolver, for logs. */

@@ -1,19 +1,12 @@
 import "server-only";
 import { db } from "./supabase";
 import { HttpError, logEvent, memberships } from "./weddings";
-import { flagsForMember } from "./flags";
 import { compile, withConfirmedTimes } from "@/lib/compiler/compile";
 import { demoSangeet } from "@/lib/compiler/fixtures/demo-sangeet";
-import { activityFromRow, activityToRow, liveFactIds, type ActivityRow, type FactInput } from "@/lib/plan-input";
-import {
-  DEFAULT_POLICY,
-  type Activity,
-  type CompileResult,
-  type CompilerPolicy,
-  type Fact,
-  type FactKind,
-  type Snapshot,
-} from "@/lib/compiler/types";
+import { weddingFlags, type ResolvedFlags } from "./flags";
+import { activityFromRow, activityToRow, typedFactRules, type ActivityRow, type FactInput } from "@/lib/plan-input";
+import { buildRecap, policyForRevision, revisionFingerprint, ttlCache, type ApproveInput, type Recap, type RespondInput, type Stance } from "@/lib/revisions";
+import type { Activity, CompileResult, CompilerPolicy, Fact, FactKind, Snapshot } from "@/lib/compiler/types";
 
 /** The only I/O in the planning path: load inputs. compile() itself stays pure. */
 export async function loadSnapshot(weddingId: string): Promise<Snapshot | null> {
@@ -39,94 +32,235 @@ export async function loadSnapshot(weddingId: string): Promise<Snapshot | null> 
   return { weddingId, revision: facts.length, activities, facts };
 }
 
-/**
- * Vendor terms. Only the vendor can confirm these (a call or a quote). A family member typing
- * one is recorded as conditional ("Aai heard 10 pm") and never replaces the vendor's answer.
- * Rule from the PRD: nothing is committed without the right person. This is code, not a flag.
- */
-const VENDOR_TERMS: FactKind[] = ["music_cutoff", "coverage_end", "overtime_rate"];
-
 async function requireMember(tgUserId: number, weddingId?: string) {
   const me = (await memberships(tgUserId)).find((m) => !weddingId || m.wedding_id === weddingId);
   if (!me) throw new HttpError(403, "not_a_member");
   return me;
 }
 
+/** What is stored with every revision and approval: which Flagsmith configuration produced it. */
+function flagSnapshot(f: ResolvedFlags) {
+  return { source: f.source, policy: f.policy, features: f.features };
+}
+
+/** Wedding flags are cached briefly: every phone polls every few seconds and Flagsmith need not be asked each time. */
+const flagCache = ttlCache<ResolvedFlags>(5000);
+async function cachedWeddingFlags(weddingId: string, stage: string): Promise<ResolvedFlags> {
+  const hit = flagCache.get(weddingId);
+  if (hit) return hit;
+  const flags = await weddingFlags(weddingId, stage);
+  // Never cache the outage fallback: recover the moment Flagsmith is back.
+  if (flags.source === "flagsmith") flagCache.set(weddingId, flags);
+  return flags;
+}
+
+/**
+ * Compiles the current plan with the WEDDING-level policy (so both households get the same
+ * ranking) and records it as a revision. A new revision number appears only when the plan state
+ * changed; see revisionFingerprint and record_revision.
+ */
+async function currentRevision(weddingId: string) {
+  const s = db();
+  const [snap, w, latest] = await Promise.all([
+    loadSnapshot(weddingId),
+    s.from("weddings").select("stage").eq("id", weddingId).single(),
+    s.from("plan_revisions").select("revision, fingerprint, result, flags").eq("wedding_id", weddingId).order("revision", { ascending: false }).limit(1),
+  ]);
+  if (w.error) throw w.error;
+  if (latest.error) throw latest.error;
+  if (!snap) return null;
+  const last = latest.data?.[0];
+
+  const resolved = await cachedWeddingFlags(weddingId, w.data.stage);
+  // During a Flagsmith outage keep the policy the latest revision was made with (see policyForRevision).
+  const storedPolicy = (last?.flags as { policy?: CompilerPolicy } | undefined)?.policy ?? null;
+  const policy = policyForRevision(resolved, storedPolicy);
+  const flags: ResolvedFlags = { ...resolved, policy };
+  const fingerprint = revisionFingerprint(snap, policy);
+
+  // Fast path for the common poll: nothing changed, so no write and no row lock.
+  if (last && last.fingerprint === fingerprint) {
+    return { snap, flags, result: last.result as CompileResult, revision: last.revision as number };
+  }
+
+  const result = compile(snap, policy);
+  const { data: revision, error } = await s.rpc("record_revision", {
+    p_wedding: weddingId,
+    p_fingerprint: fingerprint,
+    p_result: result,
+    p_flags: flagSnapshot(flags),
+  });
+  if (error) throw error;
+  // Return what was STORED for this revision (a concurrent request may have recorded it first),
+  // because responses and approvals are validated against the stored result.
+  const { data: stored, error: sErr } = await s.from("plan_revisions").select("result").eq("wedding_id", weddingId).eq("revision", revision as number).single();
+  if (sErr) throw sErr;
+  return { snap, flags, result: stored.result as CompileResult, revision: revision as number };
+}
+
+export interface HouseholdResponse {
+  householdId: string;
+  side: "A" | "B";
+  family: string;
+  memberName: string;
+  proposalId: string;
+  stance: Stance;
+  note: string;
+  updatedAt: string;
+}
+
 export interface PlanView {
-  approval: { proposalId: string; revision: number; current: boolean; by: string | null; at: string } | null;
-  policy: { version: string; strategy: CompilerPolicy["strategy"]; source: string };
-  snapshotRevision: number;
+  revision: number;
   activities: Activity[];
   facts: { id: string; kind: FactKind; functionKind: string; value: number | null; status: Fact["status"]; wording: string; channel: string }[];
   result: CompileResult;
+  policy: { version: string; strategy: CompilerPolicy["strategy"]; source: ResolvedFlags["source"] };
+  /** Both households' responses to THIS revision. */
+  responses: HouseholdResponse[];
+  /** The latest couple approval: what the committed timeline came from. Survives refresh. */
+  committed: { revision: number; proposalId: string; approvedBy: string; approvedAt: string; recap: Recap } | null;
+  canRespond: boolean;
+  canApprove: boolean;
 }
 
 /** Recompiles from the current facts on every read, so a new fact is reflected immediately. */
-export async function planView(tgUserId: number, weddingId?: string, policyOverride?: CompilerPolicy): Promise<PlanView | null> {
+export async function planView(tgUserId: number, weddingId?: string): Promise<PlanView | null> {
   const me = await requireMember(tgUserId, weddingId);
-  const snap = await loadSnapshot(me.wedding_id);
-  if (!snap) return null;
-  // Flagsmith decides how options are ranked (compiler_policy remote config), per viewer.
-  const flags = policyOverride ? null : await flagsForMember(me);
-  const policy = policyOverride ?? flags?.policy ?? DEFAULT_POLICY;
-  const { data: approval } = await db()
-    .from("approvals")
-    .select("proposal_id, snapshot_revision, created_at, approved_by")
-    .eq("wedding_id", me.wedding_id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  let approvedBy: string | null = null;
-  if (approval?.approved_by) {
-    const { data: m } = await db().from("members").select("display_name").eq("id", approval.approved_by).maybeSingle();
-    approvedBy = m?.display_name ?? null;
-  }
+  const cur = await currentRevision(me.wedding_id);
+  if (!cur) return null;
+  const s = db();
+  const [rev, hs, ms, ap] = await Promise.all([
+    s.from("plan_revisions").select("id").eq("wedding_id", me.wedding_id).eq("revision", cur.revision).single(),
+    s.from("households").select("id, side, name").eq("wedding_id", me.wedding_id),
+    s.from("members").select("id, display_name").eq("wedding_id", me.wedding_id),
+    // Only revision-bound approvals (revision_id set); rows from the earlier flow have no recap.
+    s.from("approvals").select("snapshot_revision, proposal_id, approved_by, created_at, recap").eq("wedding_id", me.wedding_id).not("revision_id", "is", null).order("created_at", { ascending: false }).limit(1),
+  ]);
+  for (const r of [rev, hs, ms, ap]) if (r.error) throw r.error;
+  const { data: rs, error: rErr } = await s
+    .from("household_responses")
+    .select("household_id, member_id, proposal_id, stance, note, updated_at")
+    .eq("revision_id", rev.data!.id);
+  if (rErr) throw rErr;
+
+  const nameOf = (id: string | null) => (ms.data ?? []).find((m) => m.id === id)?.display_name ?? "";
+  const responses: HouseholdResponse[] = (rs ?? [])
+    .map((r) => {
+      const h = (hs.data ?? []).find((x) => x.id === r.household_id);
+      return {
+        householdId: r.household_id,
+        side: (h?.side ?? "A") as "A" | "B",
+        family: h?.name ?? "",
+        memberName: nameOf(r.member_id),
+        proposalId: r.proposal_id,
+        stance: r.stance as Stance,
+        note: r.note,
+        updatedAt: r.updated_at,
+      };
+    })
+    .sort((x, y) => (x.side < y.side ? -1 : 1));
+  const last = ap.data?.[0];
+
   return {
-    policy: { version: policy.version, strategy: policy.strategy, source: flags?.source ?? "override" },
-    // The latest approval, and whether it still matches the plan the families are looking at.
-    approval: approval ? { proposalId: approval.proposal_id, revision: approval.snapshot_revision, current: approval.snapshot_revision === snap.revision, by: approvedBy, at: approval.created_at } : null,
-    snapshotRevision: snap.revision,
+    revision: cur.revision,
     // Same times the compiler used (e.g. dinner moved by a confirmed dinner_start fact).
-    activities: withConfirmedTimes(snap).activities,
-    facts: snap.facts.map((f) => ({ id: f.id, kind: f.kind, functionKind: f.functionKind, value: f.value, status: f.status, wording: f.source.wording, channel: f.source.channel })),
-    result: compile(snap, policy),
+    activities: withConfirmedTimes(cur.snap).activities,
+    facts: cur.snap.facts.map((f) => ({ id: f.id, kind: f.kind, functionKind: f.functionKind, value: f.value, status: f.status, wording: f.source.wording, channel: f.source.channel })),
+    result: cur.result,
+    policy: { version: cur.flags.policy.version, strategy: cur.flags.policy.strategy, source: cur.flags.source },
+    responses,
+    committed: last
+      ? { revision: last.snapshot_revision, proposalId: last.proposal_id, approvedBy: nameOf(last.approved_by), approvedAt: last.created_at, recap: last.recap as Recap }
+      : null,
+    canRespond: !!me.household_id,
+    canApprove: !!me.is_couple,
   };
+}
+
+export type Outcome = { status: "ok"; weddingId: string } | { status: "stale"; weddingId: string };
+
+/** One household's response to the current revision. Two households answering at once both stick. */
+export async function respondToRevision(tgUserId: number, input: RespondInput): Promise<Outcome> {
+  const me = await requireMember(tgUserId, input.weddingId);
+  if (!me.household_id) throw new HttpError(403, "no_household");
+  // Make sure the latest plan state is recorded, so answering an outdated revision is caught.
+  await currentRevision(me.wedding_id);
+  const { data, error } = await db().rpc("respond_to_revision", {
+    p_wedding: me.wedding_id,
+    p_revision: input.revision,
+    p_member: me.id,
+    p_proposal: input.proposalId,
+    p_stance: input.stance,
+    p_note: input.note,
+  });
+  if (error) throw error;
+  const status = (data as { status: string }).status;
+  if (status === "stale") return { status: "stale", weddingId: me.wedding_id };
+  if (status === "no_household") throw new HttpError(403, "no_household");
+  if (status === "bad_proposal") throw new HttpError(400, "bad_proposal");
+  await logEvent(me.wedding_id, me.id, "proposal_response", { revision: input.revision, proposal: input.proposalId, stance: input.stance });
+  return { status: "ok", weddingId: me.wedding_id };
+}
+
+/**
+ * Couple approval of one proposal in one exact revision. If the plan has moved on (for example a
+ * late vendor reply created a newer revision), nothing changes and the caller gets "stale".
+ */
+export async function approveRevision(tgUserId: number, input: ApproveInput): Promise<Outcome> {
+  const me = await requireMember(tgUserId, input.weddingId);
+  if (!me.is_couple) throw new HttpError(403, "couple_only");
+  // Record the latest plan state first: new evidence since the couple looked means a new revision.
+  const cur = await currentRevision(me.wedding_id);
+  if (!cur) throw new HttpError(404, "no_plan");
+  if (cur.revision !== input.revision) return { status: "stale", weddingId: me.wedding_id };
+
+  const proposal = cur.result.proposals.find((p) => p.id === input.proposalId);
+  if (!proposal) throw new HttpError(400, "bad_proposal");
+  const recap = buildRecap(input.revision, proposal, withConfirmedTimes(cur.snap).activities);
+
+  const { data, error } = await db().rpc("approve_revision", {
+    p_wedding: me.wedding_id,
+    p_revision: input.revision,
+    p_member: me.id,
+    p_proposal: input.proposalId,
+    p_flags: flagSnapshot(cur.flags),
+    p_recap: recap,
+  });
+  if (error) throw error;
+  const status = (data as { status: string }).status;
+  if (status === "stale") return { status: "stale", weddingId: me.wedding_id };
+  if (status === "not_couple") throw new HttpError(403, "couple_only");
+  if (status === "bad_proposal") throw new HttpError(400, "bad_proposal");
+  if (status === "already_approved") throw new HttpError(409, "already_approved");
+  await logEvent(me.wedding_id, me.id, "revision_approved", { revision: input.revision, proposal: input.proposalId });
+  return { status: "ok", weddingId: me.wedding_id };
 }
 
 /**
  * Records a typed fact (e.g. Meera's reply). Input must already be validated by `parseFactInput`.
- * It supersedes EVERY live fact of the same kind and function, so a typed correction also clears
- * an earlier contradiction instead of leaving one of the conflicting answers in force.
+ * The insert and the supersession of every fact still in force happen in one locked database
+ * function (add_fact), so simultaneous facts cannot contradict each other.
  */
 export async function addFact(tgUserId: number, input: FactInput) {
   const me = await requireMember(tgUserId, input.weddingId);
+  // Vendor terms are never confirmed by hand and never replace a call or a quote (see typedFactRules).
+  const { status, replaceOnlyTyped } = typedFactRules(input.kind, input.status);
   const s = db();
-  const { data: rows, error: readErr } = await s
-    .from("facts")
-    .select("id, supersedes, channel")
-    .eq("wedding_id", me.wedding_id)
-    .eq("kind", input.kind)
-    .eq("function_kind", input.functionKind)
-    .order("created_at");
-  // Never insert with a guessed supersession: a failed read must not leave a contradiction behind.
-  if (readErr) throw readErr;
+  // The function must exist in this wedding's plan: no facts for a function that has no activities.
+  const { count, error: cErr } = await s
+    .from("activities").select("id", { count: "exact", head: true }).eq("wedding_id", me.wedding_id).eq("function_kind", input.functionKind);
+  if (cErr) throw cErr;
+  if (!count) throw new HttpError(400, "unknown_function");
 
-  const vendorTerm = VENDOR_TERMS.includes(input.kind);
-  const status = vendorTerm && input.status === "confirmed" ? "conditional" : input.status;
-  // A typed vendor term may only replace earlier typed answers, never a call or a quote.
-  const replaceable = vendorTerm ? (rows ?? []).filter((r) => r.channel === "typed") : (rows ?? []);
-
-  const { error } = await s.from("facts").insert({
-    wedding_id: me.wedding_id,
-    kind: input.kind,
-    function_kind: input.functionKind,
-    value: input.value,
-    status,
-    channel: "typed",
-    ref: me.id,
-    wording: input.wording,
-    supersedes: liveFactIds(replaceable),
-    author_member_id: me.id,
+  const { error } = await s.rpc("add_fact", {
+    p_wedding: me.wedding_id,
+    p_member: me.id,
+    p_kind: input.kind,
+    p_function: input.functionKind,
+    p_value: input.value,
+    p_status: status,
+    p_wording: input.wording,
+    p_replace_only_typed: replaceOnlyTyped,
   });
   if (error) throw error;
   await logEvent(me.wedding_id, me.id, "fact_added", { kind: input.kind, value: input.value, status });
@@ -155,34 +289,5 @@ export async function seedDemoPlan(tgUserId: number, weddingId?: string) {
   if (error) throw error;
   if (!seeded) return me.wedding_id; // already had a plan
   await logEvent(me.wedding_id, me.id, "demo_plan_seeded", {});
-  return me.wedding_id;
-}
-
-/**
- * Issue #5. The couple approves one proposal of the plan revision they are looking at.
- * A tap from an outdated screen (the facts changed since) is rejected with 409 stale_revision,
- * and one revision can only ever hold one approval (unique index). Approving books nothing:
- * vendor bookings and payments are separate, later actions.
- */
-export async function approveProposal(tgUserId: number, input: { weddingId?: string; proposalId: string; snapshotRevision: number }) {
-  const me = await requireMember(tgUserId, input.weddingId);
-  if (!me.is_couple) throw new HttpError(403, "couple_only");
-  const view = await planView(tgUserId, me.wedding_id);
-  if (!view) throw new HttpError(404, "no_plan");
-  if (view.snapshotRevision !== Number(input.snapshotRevision)) throw new HttpError(409, "stale_revision");
-  const proposal = view.result.proposals.find((p) => p.id === input.proposalId);
-  if (!proposal) throw new HttpError(409, "unknown_proposal");
-  const functionKind = view.activities.find((a) => a.id === proposal.moves[0]?.activityId)?.functionKind ?? "wedding";
-  const { error } = await db().from("approvals").insert({
-    wedding_id: me.wedding_id,
-    function_kind: functionKind,
-    proposal_id: proposal.id,
-    proposal,
-    snapshot_revision: view.snapshotRevision,
-    policy_version: view.result.policyVersion,
-    approved_by: me.id,
-  });
-  if (error) throw error.code === "23505" ? new HttpError(409, "already_approved") : error;
-  await logEvent(me.wedding_id, me.id, "plan_approved", { proposal_id: proposal.id, revision: view.snapshotRevision, policy: view.result.policyVersion });
   return me.wedding_id;
 }

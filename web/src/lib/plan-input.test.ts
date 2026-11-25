@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityFromRow, activityToRow, liveFactIds, parseFactInput } from "./plan-input";
+import { activityFromRow, activityToRow, liveFactIds, parseFactInput, typedFactRules } from "./plan-input";
 import { demoSangeet } from "./compiler/fixtures/demo-sangeet";
 import type { Activity } from "./compiler/types";
 
@@ -73,5 +73,20 @@ describe("activity row mapping (fix 8)", () => {
     expect(activityFromRow(row).canOverlapWith).toEqual(["dinner"]);
     expect(activityFromRow({ ...row, can_overlap_with: null }).canOverlapWith).toBeUndefined();
     expect(activityFromRow({ ...row, can_overlap_with: [] }).canOverlapWith).toBeUndefined();
+  });
+});
+
+describe("typedFactRules (vendor terms are never confirmed by hand)", () => {
+  it("a typed vendor term is stored as conditional and may only replace typed answers", () => {
+    for (const kind of ["music_cutoff", "coverage_end", "overtime_rate"] as const) {
+      expect(typedFactRules(kind, "confirmed")).toEqual({ status: "conditional", replaceOnlyTyped: true });
+      expect(typedFactRules(kind, "unresolved")).toEqual({ status: "unresolved", replaceOnlyTyped: true });
+    }
+  });
+
+  it("the family's own times can be confirmed by hand and replace what is in force", () => {
+    for (const kind of ["makeup_ready", "dinner_start"] as const) {
+      expect(typedFactRules(kind, "confirmed")).toEqual({ status: "confirmed", replaceOnlyTyped: false });
+    }
   });
 });
