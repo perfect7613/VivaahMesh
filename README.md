@@ -1,13 +1,12 @@
 <p align="center">
-  <img src="docs/images/banner.png" alt="MahiWay (VivaahMesh): two families, one wedding plan" width="100%">
+  <img src="docs/images/banner.png" alt="MahiWay: two families, one wedding plan" width="100%">
 </p>
 
-<h1 align="center">VivaahMesh</h1>
+<h1 align="center">MahiWay</h1>
 
 <p align="center">
   <b>One wedding plan for two families, in every family's own language.</b><br>
   An always-on planning agent listens to the family groups, calls the venue, and never commits anything without the right person.<br>
-  On the web it goes by <b>MahiWay</b>.
 </p>
 
 <p align="center">
@@ -31,9 +30,9 @@
 
 A WhatsApp group is where the plan gets *discussed*. It isn't the plan. Aai's "dinner by 8, the elders can't wait" is buried under 200 messages. The venue's "music till 10" is a voice note one cousin heard. Nobody knows which version is current, and one family's private worries leak to the other.
 
-VivaahMesh keeps the groups and adds what they can't do:
+MahiWay keeps the groups and adds what they can't do:
 
-| | Family WhatsApp/Telegram group | VivaahMesh |
+| | Family WhatsApp/Telegram group | MahiWay |
 |---|---|---|
 | Who said what | Scrolls away | Every wish is a note credited to the person, private to their family unless they share it |
 | Vendor terms | "I think he said 10" | The venue is called (Sarvam), and the answer is stored as evidence, word for word |
@@ -83,7 +82,7 @@ VivaahMesh keeps the groups and adds what they can't do:
 
 <img src="docs/images/example-timeline.png" alt="Timeline: dinner 8:30, dance moved to 9:20 to fit the 10:00 video coverage, venue cutoff 10:30" width="100%">
 
-Aai needs dinner at 8:30. The cousins' dance runs 9:45–10:05, five minutes past the videographer's 10:00. Nobody knows when the hall stops the music. VivaahMesh flags the overrun, asks the venue (10:30), and offers "move the dance to 9:20–9:40": no extra cost, dinner unchanged, all 20 minutes kept. Each household responds and the couple approves that exact revision.
+Aai needs dinner at 8:30. The cousins' dance runs 9:45–10:05, five minutes past the videographer's 10:00. Nobody knows when the hall stops the music. MahiWay flags the overrun, asks the venue (10:30), and offers "move the dance to 9:20–9:40": no extra cost, dinner unchanged, all 20 minutes kept. Each household responds and the couple approves that exact revision.
 
 ## How it works
 
@@ -292,7 +291,7 @@ supabase/migrations         Schema and atomic RPCs (record_revision, approve_rev
 
 ## Team
 
-Built by the VivaahMesh team: @perfect7613, @guglxni and @ghoshvidip26. Teammates' pull requests (#20–#23: revision approvals, Marathi voice input and Bulbul recap, browser voice fallback, call corrections and makeup replies) were reviewed and merged into `main`.
+Built by the MahiWay team: @perfect7613, @guglxni and @ghoshvidip26. Teammates' pull requests (#20–#23: revision approvals, Marathi voice input and Bulbul recap, browser voice fallback, call corrections and makeup replies) were reviewed and merged into `main`.
 
 ## AI assistance disclosure
 
