@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/*
+ ---break---
+ */
+@custom-variant dark (&:is(.dark *));
 
 /*
  * VivaahMesh palette (see DESIGN.md). Inside Telegram the background and text
@@ -45,6 +49,24 @@
   --color-mehendi: var(--mehendi);
   --font-sans: var(--font-noto), var(--font-deva), system-ui, sans-serif;
   --font-display: var(--font-display-serif), var(--font-deva), Georgia, serif;
+  --animate-marquee: marquee var(--duration) infinite linear;
+  --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+  @keyframes marquee {
+  from {
+    transform: translateX(0);
+    }
+  to {
+    transform: translateX(calc(-100% - var(--gap)));
+    }
+  }
+  @keyframes marquee-vertical {
+  from {
+    transform: translateY(0);
+    }
+  to {
+    transform: translateY(calc(-100% - var(--gap)));
+    }
+  }
 }
 
 html,

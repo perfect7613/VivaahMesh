@@ -1,11 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
-import { Noto_Sans, Noto_Sans_Devanagari, Noto_Serif } from "next/font/google";
+import { Gloock, Noto_Sans, Noto_Sans_Devanagari, Noto_Serif, Tiro_Devanagari_Marathi } from "next/font/google";
 import "./globals.css";
 
 const noto = Noto_Sans({ variable: "--font-noto", subsets: ["latin"], display: "swap" });
 const deva = Noto_Sans_Devanagari({ variable: "--font-deva", subsets: ["devanagari"], weight: ["400", "500", "600"], display: "swap" });
 const serif = Noto_Serif({ variable: "--font-display-serif", subsets: ["latin"], weight: ["500", "600"], display: "swap" });
+// Landing page display faces: Gloock for Latin headlines, Tiro for Devanagari.
+const gloock = Gloock({ variable: "--font-gloock", subsets: ["latin"], weight: "400", display: "swap" });
+const tiro = Tiro_Devanagari_Marathi({ variable: "--font-tiro", subsets: ["devanagari", "latin"], weight: "400", display: "swap" });
 
 export const metadata: Metadata = {
   title: "VivaahMesh: one wedding plan for two families",
@@ -23,7 +26,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${noto.variable} ${deva.variable} ${serif.variable} h-full antialiased`}>
+    // telegram-web-app.js writes theme CSS variables onto <html> before hydration.
+    <html lang="en" suppressHydrationWarning className={`${noto.variable} ${deva.variable} ${serif.variable} ${gloock.variable} ${tiro.variable} h-full antialiased`}>
       <body className="min-h-full">
         {/* Telegram Mini App SDK. Harmless outside Telegram (initData is empty there). */}
         <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
