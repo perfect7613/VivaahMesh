@@ -48,7 +48,7 @@ export default function Landing() {
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
         <a href="#" className="flex items-center gap-2.5">
           <VivaahMark size={30} />
-          <span className="font-[family-name:var(--font-gloock)] text-xl">VivaahMesh</span>
+          <span className="font-[family-name:var(--font-gloock)] text-xl">MahiWay</span>
         </a>
         <div className="flex items-center gap-5 text-[15px]">
           <a href="#why" className="hidden text-[#6b5d50] hover:text-[#2a1f14] sm:inline">Why not a group chat</a>
@@ -73,7 +73,7 @@ export default function Landing() {
             <span className="text-[#b3261e]">one wedding plan.</span>
           </h1>
           <p className="mt-6 max-w-xl text-[18px] leading-relaxed text-[#5a4c40]">
-            Aai wants dinner at 8:30. The cousins&apos; dance ends at 10:05. The venue never said when the music stops. VivaahMesh spots the clash, calls the venue to ask, and shows both families the options, each with the name of whoever asked for what.
+            Aai wants dinner at 8:30. The cousins&apos; dance ends at 10:05. The venue never said when the music stops. MahiWay spots the clash, calls the venue to ask, and shows both families the options, each with the name of whoever asked for what.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <a
@@ -207,7 +207,7 @@ export default function Landing() {
       </section>
 
       <footer className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-5 pb-10 text-[13px] text-[#85776a] sm:flex-row sm:px-8">
-        <span className="flex items-center gap-2"><VivaahMark size={18} /> VivaahMesh · made in one day at FestiveHacks, 25 Nov 2026</span>
+        <span className="flex items-center gap-2"><VivaahMark size={18} /> MahiWay · made in one day at FestiveHacks, 25 Nov 2026</span>
         <a href="https://github.com/perfect7613/VivaahMesh" className="hover:text-[#2a1f14]">Source on GitHub</a>
       </footer>
     </div>

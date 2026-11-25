@@ -20,7 +20,7 @@ const meera = { id: 920000001, first_name: "Meera" }, aai = { id: 920000002, fir
 let r = await call(meera, "/api/weddings", { partnerA: "Meera", partnerB: "Aarav", weddingDate: "2027-02-14", city: "Pune", functions: ["haldi", "sangeet", "ceremony"], guestCount: 200, budgetInr: 1500000, myFamily: "Patil family", otherFamily: "Deshmukh family", displayName: "Meera", language: "en" });
 const W = r.json.view.wedding.id;
 const hA = r.json.view.households.find((h) => h.side === "A"), hB = r.json.view.households.find((h) => h.side === "B");
-await call(aai, "/api/join", { code: hA.inviteCode, displayName: "Aai", role: "parent", language: "mr", priorities: [], note: "", visibility: "shared" });
+await call(aai, "/api/join", { code: hA.inviteCode, displayName: "Aai", role: "parent", language: "mr", priorities: ["elders_dinner"], note: "Private: elders must eat by 8", visibility: "household" });
 await call(riya, "/api/join", { code: hB.inviteCode, displayName: "Riya", role: "cousin", language: "en", priorities: [], note: "", visibility: "shared" });
 const act = (u, action) => call(u, "/api/lifecycle", { weddingId: W, action });
 
@@ -52,6 +52,8 @@ try {
   const sp = r.json.lifecycle?.spend;
   ok(sp && sp.planned === 380000 && sp.committed === 360000 && sp.actual === 100000, `spend planned/committed/actual = ${sp?.planned}/${sp?.committed}/${sp?.actual} (package counted once)`);
   ok(sp?.discrepancies?.[0]?.diff === 35000, "invoice ₹35k above approved is flagged");
+  const inc = r.json.lifecycle?.tasks?.find((t) => t.title.startsWith("Invoice from"));
+  ok(inc?.owner === "Aai", `discrepancy has an owner (${inc?.owner}: ${inc?.title})`);
   r = await call(riya, `/api/lifecycle?wedding=${W}`);
   ok(r.json.lifecycle?.spend === null && r.json.lifecycle?.vendors?.[0]?.quote_inr === null, "cousin sees no money");
 
@@ -72,6 +74,7 @@ try {
   const fSangeet = L.functions.find((f) => f.kind === "sangeet").id, fCer = L.functions.find((f) => f.kind === "ceremony").id;
   r = await call(null, `/api/rsvp/${g1}`, { functionId: fSangeet, attending: true, people: 4, veg: 3 });
   ok(r.status === 200 && r.json.rsvps.length === 1, "guest RSVPs for Sangeet (no Telegram)");
+  ok(!/elders|private|priorit|note|budget|Patil|Deshmukh/i.test(JSON.stringify(r.json)), "guest page carries no family notes, budgets or family names");
   await call(null, `/api/rsvp/${g1}`, { functionId: fCer, attending: false });
   r = await call(meera, `/api/lifecycle?wedding=${W}`);
   const c = r.json.lifecycle.rsvp;

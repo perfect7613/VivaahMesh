@@ -11,10 +11,10 @@ const gloock = Gloock({ variable: "--font-gloock", subsets: ["latin"], weight: "
 const tiro = Tiro_Devanagari_Marathi({ variable: "--font-tiro", subsets: ["devanagari", "latin"], weight: "400", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "VivaahMesh: one wedding plan for two families",
+  title: "MahiWay: one wedding plan for two families",
   description: "Both families, one plan, each in their own language. Start on Telegram in a minute.",
-  applicationName: "VivaahMesh",
-  appleWebApp: { capable: true, title: "VivaahMesh", statusBarStyle: "default" },
+  applicationName: "MahiWay",
+  appleWebApp: { capable: true, title: "MahiWay", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {

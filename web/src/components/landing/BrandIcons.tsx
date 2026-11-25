@@ -16,7 +16,7 @@ export function WhatsAppIcon({ className, size = 20 }: { className?: string; siz
   );
 }
 
-/** VivaahMesh mark: a marigold with a sindoor centre (same as the app icon). */
+/** MahiWay mark: a marigold with a sindoor centre (same as the app icon). */
 export function VivaahMark({ size = 28, className }: { size?: number; className?: string }) {
   return (
     <svg viewBox="-160 -160 320 320" width={size} height={size} className={className} aria-hidden>

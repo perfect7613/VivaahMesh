@@ -156,7 +156,15 @@ export async function lifecycleAction(tgUserId: number, weddingId: string | unde
       if (!me.is_couple) throw new HttpError(403, "couple_only");
       const v = await vendor(a.vendorId);
       const paid = money(a.paidInr);
-      await s.from("vendors").update({ invoice_inr: money(a.invoiceInr) ?? v.invoice_inr, ...(paid !== undefined ? { paid_inr: paid, paid_at: new Date().toISOString() } : {}) }).eq("id", v.id);
+      const invoice = money(a.invoiceInr) ?? v.invoice_inr;
+      await s.from("vendors").update({ invoice_inr: invoice, ...(paid !== undefined ? { paid_inr: paid, paid_at: new Date().toISOString() } : {}) }).eq("id", v.id);
+      // #14: an invoice that differs from the approved amount gets an owner: whoever authorized the booking.
+      if (invoice != null && v.committed_inr != null && invoice !== v.committed_inr) {
+        const title = `Invoice from ${v.name} is ₹${(invoice - v.committed_inr).toLocaleString("en-IN")} off the approved ₹${Number(v.committed_inr).toLocaleString("en-IN")}`;
+        const { data: open } = await s.from("tasks").select("id").eq("vendor_id", v.id).eq("kind", "incident").eq("status", "open").like("title", "Invoice from%").maybeSingle();
+        if (open) await s.from("tasks").update({ title }).eq("id", open.id);
+        else await s.from("tasks").insert({ wedding_id: W, title, kind: "incident", owner_member_id: v.authorized_by ?? me.id, vendor_id: v.id, escalated: true, stage: "closeout" });
+      }
       break;
     }
     case "cancel_vendor": {

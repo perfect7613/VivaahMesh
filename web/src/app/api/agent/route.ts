@@ -42,6 +42,8 @@ export const GET = authed(async (req, viewer) => {
       at: r.started_at,
       messages: ((r.actions as { tool: string; audience?: string; result?: string }[]) ?? []).filter((a) => a.tool === "send_message" && String(a.result).startsWith("sent")).map((a) => a.audience),
     })),
+    // #11: what is being handled, and by whom (open owned tasks, escalations first).
+    tasks: await openTasks(me.wedding_id),
   };
 });
 
@@ -52,3 +54,11 @@ export const POST = authed(async (req, viewer) => {
   after(() => runAgent(me.wedding_id, "manual").catch((e) => console.error("manual agent run failed", e)));
   return { ok: true };
 });
+
+async function openTasks(weddingId: string) {
+  const [{ data: ts }, { data: ms }] = await Promise.all([
+    db().from("tasks").select("id, title, kind, owner_member_id, owner_label, due_date, escalated").eq("wedding_id", weddingId).neq("status", "done").order("escalated", { ascending: false }).order("created_at").limit(5),
+    db().from("members").select("id, display_name").eq("wedding_id", weddingId),
+  ]);
+  return (ts ?? []).map((t) => ({ id: t.id, title: t.title, kind: t.kind, due: t.due_date, escalated: t.escalated, owner: (ms ?? []).find((m) => m.id === t.owner_member_id)?.display_name ?? t.owner_label ?? null }));
+}

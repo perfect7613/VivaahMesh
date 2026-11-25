@@ -3,7 +3,7 @@
 // starting from its Telegram product study.
 //
 // Story, four beats (~11s, plays once in view, holds the result):
-//   1. Context: Vivaah has greeted Aai in Marathi.
+//   1. Context: MahiWay has greeted Aai in Marathi.
 //   2. Aai types her family's wish in Marathi and sends it.
 //   3. Ticks: sent, then read.
 //   4. The bot files it under the Patil family, and the plan card beside the phone
@@ -105,10 +105,10 @@ export default function HeroPhone() {
                 <Back />
               </span>
               <span className="tg-glass tg-title">
-                <span className="tg-name">Vivaah</span>
+                <span className="tg-name">MahiWay</span>
                 <span className="tg-status">bot</span>
               </span>
-              <Avatar name="Vivaah" size={48} className="tg-avatar" style={{ background: "linear-gradient(#f3b73a, #e08a12)" }} />
+              <Avatar name="MahiWay" size={48} className="tg-avatar" style={{ background: "linear-gradient(#f3b73a, #e08a12)" }} />
             </header>
 
             <Thread className="tg-thread">

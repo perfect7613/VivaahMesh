@@ -76,7 +76,7 @@ Existing inline deployments can keep their API-key incident reporting, agent-fai
 
 ## Live test
 
-Run against a deployment (signed Telegram users, throwaway weddings): `node web/scripts/e2e-live.mjs <url>` (families → call → approval → agent) and `node web/scripts/e2e-lifecycle.mjs <url>` (stages, vendors, spend, guests, RSVPs, registry race, vendor run sheet).
+Run against a deployment (signed Telegram users, throwaway weddings): `node web/scripts/e2e-live.mjs <url>` (families → call → approval → agent) and `node web/scripts/e2e-lifecycle.mjs <url>` (stages, vendors, spend, guests, RSVPs, registry race, vendor run sheet). Step-by-step manual test with real phones: [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Setup from a fresh checkout
 

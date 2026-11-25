@@ -101,9 +101,19 @@ export function AgentFeed({ weddingId, lang, groupLink }: { weddingId: string; l
     }
   }
   const [runs, setRuns] = useState<Run[] | null>(null);
+  const [tasks, setTasks] = useState<{ id: string; title: string; kind: string; due: string | null; escalated: boolean; owner: string | null }[]>([]);
   const [checking, setChecking] = useState(false);
 
-  const load = useCallback(() => api<{ runs: Run[] }>(`/api/agent?wedding=${weddingId}`).then((r) => setRuns(r.runs)).catch(() => {}), [weddingId]);
+  const load = useCallback(
+    () =>
+      api<{ runs: Run[]; tasks?: typeof tasks }>(`/api/agent?wedding=${weddingId}`)
+        .then((r) => {
+          setRuns(r.runs);
+          setTasks(r.tasks ?? []);
+        })
+        .catch(() => {}),
+    [weddingId],
+  );
   useWeddingLive(weddingId, load);
 
   useEffect(() => {
@@ -197,6 +207,17 @@ export function AgentFeed({ weddingId, lang, groupLink }: { weddingId: string; l
           </span>
           <span aria-hidden className="text-xl text-muted">›</span>
         </a>
+      ) : null}
+      {tasks.length ? (
+        <ul className="border-b border-line px-5 py-3">
+          {tasks.map((t) => (
+            <li key={t.id} className="flex items-baseline gap-2 py-1 text-[14px]">
+              <span aria-hidden>{t.escalated ? "⚠️" : t.kind === "deliverable" ? "📦" : "•"}</span>
+              <span className="flex-1">{t.title}</span>
+              <span className="shrink-0 text-[12px] text-muted">{[t.owner, t.due].filter(Boolean).join(" · ")}</span>
+            </li>
+          ))}
+        </ul>
       ) : null}
       {runs === null ? (
         <div className="h-20 animate-pulse" />

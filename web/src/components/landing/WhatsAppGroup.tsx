@@ -22,7 +22,7 @@ export function WhatsAppGroup() {
           </span>
         </Msg>
         <div className="mt-1 self-start rounded-lg rounded-tl-none border-l-4 border-[#e8a317] bg-white px-3 py-2 shadow-sm">
-          <p className="mb-0.5 text-[12.5px] font-semibold text-[#b3261e]">VivaahMesh</p>
+          <p className="mb-0.5 text-[12.5px] font-semibold text-[#b3261e]">MahiWay</p>
           <p>📌 Added to the plan</p>
           <p className="text-[13.5px] text-[#3b4a54]">· Catering quote ₹650/plate, veg (Mama)</p>
           <p className="text-[13.5px] text-[#3b4a54]">· “Dinner by 8:30 for Aaji” (Aai, from voice)</p>

@@ -2,7 +2,7 @@ import { WhatsAppIcon, VivaahMark } from "./BrandIcons";
 
 /**
  * The honest answer to "couldn't a WhatsApp group do this?": the same Sangeet, twice.
- * Left: the messages a family group actually has. Right: what VivaahMesh works out from them.
+ * Left: the messages a family group actually has. Right: what MahiWay works out from them.
  */
 const CHAT: { who: string; text: string; time: string; me?: boolean; deva?: boolean }[] = [
   { who: "Aai", text: "आजीसाठी जेवण ८:३० लाच हवं", time: "7:02 pm", deva: true },
@@ -27,9 +27,9 @@ export function GroupVsPlan() {
       <div className="mx-auto max-w-2xl text-center">
         <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.18em] text-[#b3261e]">Couldn&apos;t a WhatsApp group do this?</p>
         <h2 className="font-[family-name:var(--font-gloock)] text-[36px] leading-tight sm:text-[44px]">
-          The group remembers what was said. VivaahMesh works out what it changes.
+          The group remembers what was said. MahiWay works out what it changes.
         </h2>
-        <p className="mt-4 text-[17px] text-[#5a4c40]">Same Sangeet, same messages. Keep the group: VivaahMesh reads it and does the follow-up.</p>
+        <p className="mt-4 text-[17px] text-[#5a4c40]">Same Sangeet, same messages. Keep the group: MahiWay reads it and does the follow-up.</p>
       </div>
 
       <div className="mt-12 grid gap-6 lg:grid-cols-2">
@@ -83,7 +83,7 @@ export function GroupVsPlan() {
         <div className="hidden grid-cols-[180px_1fr_1fr] gap-6 border-b border-[#e9d9b8] px-6 py-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[#85776a] md:grid">
           <span />
           <span className="flex items-center gap-2"><WhatsAppIcon size={14} className="text-[#25D366]" /> A group on its own</span>
-          <span className="flex items-center gap-2"><VivaahMark size={14} /> With VivaahMesh</span>
+          <span className="flex items-center gap-2"><VivaahMark size={14} /> With MahiWay</span>
         </div>
         <dl>
           {ROWS.map(([k, group, mesh], i) => (
