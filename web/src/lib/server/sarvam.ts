@@ -63,9 +63,9 @@ export async function chat(opts: {
 }
 
 /** Saaras v4: audio (≤30 s) → text in the speaker's language, plus the detected language. */
-export async function transcribe(audio: ArrayBuffer, filename = "voice.ogg"): Promise<{ transcript: string; languageCode: string | null }> {
+export async function transcribe(audio: ArrayBuffer, filename = "voice.ogg", mime = "audio/ogg"): Promise<{ transcript: string; languageCode: string | null }> {
   const form = new FormData();
-  form.append("file", new Blob([audio], { type: "audio/ogg" }), filename);
+  form.append("file", new Blob([audio], { type: mime }), filename);
   form.append("model", "saaras:v4");
   form.append("mode", "transcribe");
   form.append("keyterms", JSON.stringify(["Sangeet", "Haldi", "Mehendi", "muhurat", "आजी", "आजोबा", "मामा", "VivaahMesh"]));
