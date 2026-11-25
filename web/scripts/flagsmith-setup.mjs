@@ -38,6 +38,8 @@ const FEATURES = [
   ["conditional_options_ui", "Shows conditional proposals with the missing answer (rolled out to Household A first).", false, null],
   ["onboarding_celebration", "Marigold petals and haptics when a wedding is created or a family joins.", true, null],
   ["home_team_section", "Shows 'The team is handling' on the Mini App home screen.", true, null],
+  ["agent_enabled", "Kill switch for the always-on VivaahMesh agent (heartbeat and replies).", true, null],
+  ["agent_model", "Which Sarvam Token Factory model powers the agent.", true, "glm5.3-flash"],
   ["stage_sourcing", "Unlocks vendor sourcing screens.", false, null],
   ["stage_booking", "Unlocks booking and deposit screens.", false, null],
   ["stage_guests", "Unlocks RSVPs and the registry.", false, null],

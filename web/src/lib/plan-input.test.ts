@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityFromRow, activityToRow, canRecordFact, liveFactIds, parseFactInput } from "./plan-input";
+import { activityFromRow, activityToRow, liveFactIds, parseFactInput, typedFactRules } from "./plan-input";
 import { demoSangeet } from "./compiler/fixtures/demo-sangeet";
 import type { Activity } from "./compiler/types";
 
@@ -76,15 +76,17 @@ describe("activity row mapping (fix 8)", () => {
   });
 });
 
-describe("canRecordFact (finding 7)", () => {
-  it("only the couple can record a confirmed fact by hand", () => {
-    expect(canRecordFact(true, "confirmed")).toBe(true);
-    expect(canRecordFact(false, "confirmed")).toBe(false);
+describe("typedFactRules (vendor terms are never confirmed by hand)", () => {
+  it("a typed vendor term is stored as conditional and may only replace typed answers", () => {
+    for (const kind of ["music_cutoff", "coverage_end", "overtime_rate"] as const) {
+      expect(typedFactRules(kind, "confirmed")).toEqual({ status: "conditional", replaceOnlyTyped: true });
+      expect(typedFactRules(kind, "unresolved")).toEqual({ status: "unresolved", replaceOnlyTyped: true });
+    }
   });
-  it("anyone can report a claim that still needs confirmation", () => {
-    for (const status of ["conditional", "unresolved"] as const) {
-      expect(canRecordFact(false, status)).toBe(true);
-      expect(canRecordFact(true, status)).toBe(true);
+
+  it("the family's own times can be confirmed by hand and replace what is in force", () => {
+    for (const kind of ["makeup_ready", "dinner_start"] as const) {
+      expect(typedFactRules(kind, "confirmed")).toEqual({ status: "confirmed", replaceOnlyTyped: false });
     }
   });
 });

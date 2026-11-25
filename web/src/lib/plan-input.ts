@@ -111,11 +111,20 @@ export function activityToRow(a: Activity): ActivityRow {
 }
 
 /**
- * Who may record a fact. Anyone in the wedding can report one as `conditional` or `unresolved`
- * (a claim waiting for confirmation), but a `confirmed` fact becomes a hard input to the plan and
- * replaces what is on file, so only the couple can record one by hand. Vendor answers arrive
- * through their own channels (a call, a quote), not through this route.
+ * Vendor terms. Only the vendor can confirm these (a call or a quote). A family member typing one
+ * is recorded as conditional ("Aai heard 10 pm") and never replaces the vendor's answer. Rule from
+ * the PRD: nothing is committed without the right person. This is code, not a flag.
  */
-export function canRecordFact(isCouple: boolean, status: Fact["status"]): boolean {
-  return status !== "confirmed" || isCouple;
+export const VENDOR_TERMS: FactKind[] = ["music_cutoff", "coverage_end", "overtime_rate"];
+
+/**
+ * What happens when a family member types a fact by hand:
+ *  - a vendor term is never `confirmed` (it is stored as `conditional`) and may only replace
+ *    earlier TYPED answers, never one that came from a call or a quote;
+ *  - anything else (the family's own makeup or dinner times) is recorded as typed and replaces
+ *    every answer in force.
+ */
+export function typedFactRules(kind: FactKind, requested: Fact["status"]): { status: Fact["status"]; replaceOnlyTyped: boolean } {
+  const vendor = VENDOR_TERMS.includes(kind);
+  return { status: vendor && requested === "confirmed" ? "conditional" : requested, replaceOnlyTyped: vendor };
 }

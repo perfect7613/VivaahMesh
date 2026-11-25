@@ -2,11 +2,15 @@ import type { ReactNode } from "react";
 import type { Lang } from "@/lib/i18n";
 import { VivaahMark } from "@/components/landing/BrandIcons";
 
-const LOCALE: Record<Lang, string> = { en: "en-IN", hi: "hi-IN", mr: "mr-IN" };
-
 export function formatDate(date: string | null, lang: Lang) {
   if (!date) return null;
-  return new Date(`${date}T00:00:00`).toLocaleDateString(LOCALE[lang], { day: "numeric", month: "long", year: "numeric" });
+  const d = new Date(`${date}T00:00:00`);
+  const opts = { day: "numeric", month: "long", year: "numeric" } as const;
+  try {
+    return d.toLocaleDateString(lang === "od" ? "or-IN" : `${lang}-IN`, opts);
+  } catch {
+    return d.toLocaleDateString("en-IN", opts);
+  }
 }
 
 function Corner({ className }: { className: string }) {

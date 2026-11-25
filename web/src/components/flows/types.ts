@@ -8,7 +8,7 @@ export interface View {
     guestCount: number | null; budgetInr: number | null; stage: string; coupleCode: string | null;
   };
   households: { id: string; side: "A" | "B"; name: string; inviteCode: string | null; members: { id: string; name: string; role: string; isCouple: boolean }[] }[];
-  functions: { id: string; kind: string; title: string; sort: number }[];
+  functions: { id: string; kind: string; title: string; sort: number; on_date: string | null; starts_at: string | null; venue: string | null; details: string | null }[];
   priorities: { id: string; kind: string; note: string | null; visibility: "shared" | "household"; source: string; author: string; family: string; createdAt: string }[];
 }
 

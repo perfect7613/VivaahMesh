@@ -1,4 +1,5 @@
--- Issue #5: revision-bound couple approval.
+-- Issue #5: revision-bound couple approval, built on the `approvals` table created in
+-- 20261125130000_languages_functions_approvals.sql (this file extends it; it does not redefine it).
 --
 -- A plan revision is a stored compile result. Households respond to a revision, and the couple
 -- approves one exact revision. Every check that must be atomic lives in a function below:
@@ -34,30 +35,25 @@ create table household_responses (
   unique (revision_id, household_id)
 );
 
-create table approvals (
-  id uuid primary key default gen_random_uuid(),
-  wedding_id uuid not null references weddings(id) on delete cascade,
-  revision_id uuid not null unique references plan_revisions(id) on delete cascade,
-  revision int not null,
-  proposal_id text not null,
-  approved_by uuid references members(id) on delete set null,
-  -- Flagsmith snapshot at the moment of approval.
-  flags jsonb not null default '{}'::jsonb,
-  -- What was approved, as structured data (moves, cost, reasons) for the recap.
-  recap jsonb not null default '{}'::jsonb,
-  approved_at timestamptz not null default now()
-);
+-- `approvals` already exists (function_kind, proposal, snapshot_revision, policy_version, approved_by,
+-- created_at). Here snapshot_revision holds the plan REVISION number the couple approved.
+-- Rows made by the earlier flow have revision_id = null and are ignored by the revision-bound views.
+alter table approvals add column if not exists revision_id uuid references plan_revisions(id) on delete cascade;
+-- Flagsmith snapshot at the moment of approval.
+alter table approvals add column if not exists flags jsonb not null default '{}'::jsonb;
+-- What was approved, as structured data (moves, cost, reasons) for the recap.
+alter table approvals add column if not exists recap jsonb not null default '{}'::jsonb;
+-- One approval per revision.
+create unique index if not exists approvals_revision_id_key on approvals (revision_id) where revision_id is not null;
 
 -- The revision whose approval produced the current committed timeline (the activities table).
 alter table weddings add column committed_revision int;
 
 create index on plan_revisions (wedding_id, revision desc);
 create index on household_responses (revision_id);
-create index on approvals (wedding_id, approved_at desc);
 
 alter table plan_revisions enable row level security;
 alter table household_responses enable row level security;
-alter table approvals enable row level security;
 
 -- Returns the current revision number, inserting a new revision only if the fingerprint changed.
 create or replace function record_revision(p_wedding uuid, p_fingerprint text, p_result jsonb, p_flags jsonb)
@@ -143,6 +139,7 @@ declare
   prop jsonb;
   mv jsonb;
   act record;
+  fk text := 'wedding';
 begin
   perform 1 from weddings where id = p_wedding for update;
 
@@ -183,6 +180,7 @@ begin
     if not found then
       return jsonb_build_object('status', 'stale', 'current_revision', latest);
     end if;
+    fk := act.function_kind;
 
     -- Extending video coverage: the compiler trusts the confirmed coverage_end FACT over the
     -- activity's end. Record the approved end as a new fact that supersedes the ones in force,
@@ -201,8 +199,11 @@ begin
     end if;
   end loop;
 
-  insert into approvals (wedding_id, revision_id, revision, proposal_id, approved_by, flags, recap)
-  values (p_wedding, rev.id, p_revision, p_proposal, m.id, coalesce(p_flags, '{}'::jsonb), coalesce(p_recap, '{}'::jsonb));
+  insert into approvals (wedding_id, function_kind, proposal_id, proposal, snapshot_revision, policy_version,
+                         approved_by, revision_id, flags, recap)
+  values (p_wedding, fk, p_proposal, prop, p_revision,
+          coalesce(rev.result->>'policyVersion', 'default'),
+          m.id, rev.id, coalesce(p_flags, '{}'::jsonb), coalesce(p_recap, '{}'::jsonb));
   update weddings set committed_revision = p_revision where id = p_wedding;
   return jsonb_build_object('status', 'ok', 'current_revision', latest);
 end;
@@ -218,7 +219,8 @@ revoke execute on function approve_revision(uuid, int, uuid, text, jsonb, jsonb)
 -- facts and inserting in two separate steps let two simultaneous facts both supersede only the old
 -- ones, leaving a contradiction between themselves.
 create or replace function add_fact(
-  p_wedding uuid, p_member uuid, p_kind text, p_function text, p_value int, p_status text, p_wording text
+  p_wedding uuid, p_member uuid, p_kind text, p_function text, p_value int, p_status text, p_wording text,
+  p_replace_only_typed boolean default false
 )
 returns void
 language plpgsql
@@ -234,6 +236,8 @@ begin
     coalesce((
       select array_agg(f.id) from facts f
       where f.wedding_id = p_wedding and f.kind = p_kind and f.function_kind = p_function
+        -- Vendor terms: a typed answer may only replace earlier typed answers, never a call or a quote.
+        and (not p_replace_only_typed or f.channel = 'typed')
         and not exists (select 1 from facts g where g.wedding_id = p_wedding and f.id = any (g.supersedes))
     ), '{}'),
     p_member
@@ -241,4 +245,4 @@ begin
 end;
 $$;
 
-revoke execute on function add_fact(uuid, uuid, text, text, int, text, text) from public, anon, authenticated;
+revoke execute on function add_fact(uuid, uuid, text, text, int, text, text, boolean) from public, anon, authenticated;

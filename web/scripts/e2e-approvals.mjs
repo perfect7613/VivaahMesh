@@ -47,25 +47,24 @@ await call(riya, "/api/join", { code: deshmukh.inviteCode, displayName: "Riya", 
 r = await call(couple, "/api/plan", { weddingId: wid });
 ok(r.status === 200 && r.json.plan?.revision >= 1, "demo plan seeded and recorded as a revision");
 
-// Only the couple can record a confirmed fact by hand; a family member can report a claim.
-r = await call(aai, "/api/facts", { weddingId: wid, kind: "music_cutoff", functionKind: "sangeet", value: t("23:59"), wording: "trust me" });
-ok(r.status === 403 && r.json.error === "couple_only_confirmed", "family member cannot confirm a fact");
-r = await call(aai, "/api/facts", { weddingId: wid, kind: "music_cutoff", functionKind: "sangeet", value: t("23:59"), status: "conditional", wording: "I think late" });
-ok(r.status === 200, "family member can report a conditional fact");
-r = await call(couple, "/api/facts", { weddingId: wid, kind: "music_cutoff", functionKind: "haldi", value: t("22:00") });
+// Vendor terms are never confirmed by hand and never replace a quote or a call.
+r = await call(aai, "/api/facts", { weddingId: wid, kind: "music_cutoff", functionKind: "sangeet", value: t("23:59"), wording: "I think late" });
+ok(r.status === 200 && r.json.plan.facts.find((f) => f.kind === "music_cutoff" && f.value === t("23:59"))?.status === "conditional", "family member's typed vendor term is stored as conditional");
+r = await call(couple, "/api/facts", { weddingId: wid, kind: "coverage_end", functionKind: "sangeet", value: t("23:30"), wording: "maybe later" });
+ok(r.json.plan.result.conflicts.some((c) => c.constraint === "coverage_end" && c.overByMin === 5), "a typed coverage_end does not replace the videographer's quote");
+r = await call(couple, "/api/facts", { weddingId: wid, kind: "makeup_ready", functionKind: "haldi", value: t("19:00") });
 ok(r.status === 400 && r.json.error === "unknown_function", "fact for a function with no activities refused");
 
 // Simultaneous facts of the same kind must not contradict each other.
 await Promise.all([
-  call(couple, "/api/facts", { weddingId: wid, kind: "overtime_rate", functionKind: "sangeet", value: 5000 }),
-  call(couple, "/api/facts", { weddingId: wid, kind: "overtime_rate", functionKind: "sangeet", value: 7000 }),
+  call(couple, "/api/facts", { weddingId: wid, kind: "makeup_ready", functionKind: "sangeet", value: t("19:45") }),
+  call(aai, "/api/facts", { weddingId: wid, kind: "makeup_ready", functionKind: "sangeet", value: t("19:50") }),
 ]);
 r = await call(couple, `/api/plan?wedding=${wid}`);
 ok(!r.json.plan.result.blocking.some((b) => b.code === "contradiction"), "two simultaneous facts leave no contradiction behind");
 
-// Vendor answers that leave a feasible after-dinner slot (22:00–22:20) under the default policy.
-await call(couple, "/api/facts", { weddingId: wid, kind: "music_cutoff", functionKind: "sangeet", value: t("22:30"), wording: "music till 10:30" });
-r = await call(couple, "/api/facts", { weddingId: wid, kind: "coverage_end", functionKind: "sangeet", value: t("22:30"), wording: "video till 10:30" });
+// Meera confirms she is ready by 7:55: the 8:10 pm dance becomes an approvable option (family-confirmable fact).
+r = await call(couple, "/api/facts", { weddingId: wid, kind: "makeup_ready", functionKind: "sangeet", value: t("19:55"), wording: "ready by 7:55" });
 let plan = r.json.plan;
 const rev1 = plan.revision;
 const target = plan.result.proposals[0];
@@ -92,14 +91,14 @@ r = await call(couple, `/api/plan?wedding=${wid}`);
 ok(r.json.plan.responses.filter((x) => x.side === "A").length === 1 && r.json.plan.responses.find((x) => x.side === "A").stance === "object", "same household: latest answer wins, one row");
 
 // Only the couple can approve.
-r = await call(aai, "/api/plan/approve", { weddingId: wid, revision: rev1, proposalId: target.id });
+r = await call(aai, "/api/approvals", { weddingId: wid, revision: rev1, proposalId: target.id });
 ok(r.status === 403, "non-couple approval refused");
 
-// A late vendor reply creates a newer revision: approving the old one is rejected with the newer plan.
-r = await call(couple, "/api/facts", { weddingId: wid, kind: "overtime_rate", functionKind: "sangeet", value: 6000, wording: "₹6000/hr" });
+// A late reply from Meera (still in time) creates a newer revision: approving the old one is rejected with the newer plan.
+r = await call(couple, "/api/facts", { weddingId: wid, kind: "makeup_ready", functionKind: "sangeet", value: t("19:50"), wording: "actually 7:50" });
 const rev2 = r.json.plan.revision;
-ok(rev2 > rev1, `late vendor reply → newer revision ${rev2}`);
-r = await call(couple, "/api/plan/approve", { weddingId: wid, revision: rev1, proposalId: target.id });
+ok(rev2 > rev1, `late reply from Meera → newer revision ${rev2}`);
+r = await call(couple, "/api/approvals", { weddingId: wid, revision: rev1, proposalId: target.id });
 ok(r.status === 409 && r.json.error === "stale" && r.json.plan?.revision === rev2, "stale approval → 409 with the newer revision");
 r = await call(couple, `/api/plan?wedding=${wid}`);
 ok(r.json.plan.committed === null, "stale approval committed nothing");
@@ -108,9 +107,9 @@ ok(r.json.plan.committed === null, "stale approval committed nothing");
 r = await call(riya, "/api/plan/respond", { weddingId: wid, revision: rev1, proposalId: target.id, stance: "agree" });
 ok(r.status === 409 && r.json.plan?.revision === rev2, "response to an outdated revision → 409 with the newer revision");
 
-// Approving the current revision commits the timeline.
+// Approving the current revision commits the timeline (via main's /api/approvals endpoint).
 const current = r.json.plan.result.proposals[0];
-r = await call(couple, "/api/plan/approve", { weddingId: wid, revision: rev2, proposalId: current.id });
+r = await call(couple, "/api/approvals", { weddingId: wid, revision: rev2, proposalId: current.id });
 ok(r.status === 200 && r.json.plan.committed?.revision === rev2, `couple approves revision ${rev2}`);
 ok(r.json.plan.committed?.approvedBy === "Meera", "approval records who approved");
 const moved = current.moves[0];
@@ -121,13 +120,7 @@ ok(after && after.start === moved.to.start && after.end === moved.to.end, "commi
 r = await call(riya, `/api/plan?wedding=${wid}`);
 ok(r.json.plan.committed?.revision === rev2 && r.json.plan.committed.recap.moves.length > 0, "approved timeline and recap survive a refresh (other household)");
 
-// If the approved move extended video coverage, the conflict must not come straight back.
-if (moved.activityId === "video") {
-  r = await call(couple, `/api/plan?wedding=${wid}`);
-  ok(!r.json.plan.result.conflicts.some((c) => c.constraint === "coverage_end"), "extending coverage clears the coverage conflict (coverage_end fact recorded)");
-}
-
-// Approving the same revision twice is refused.
+// Approving the same revision twice is refused (the alias path reaches the same implementation).
 r = await call(couple, "/api/plan/approve", { weddingId: wid, revision: rev2, proposalId: current.id });
 ok(r.status === 409, "second approval of the same revision refused");
 

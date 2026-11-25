@@ -53,6 +53,7 @@ alter table facts enable row level security;
 create or replace function seed_demo_plan(p_wedding uuid, p_activities jsonb, p_facts jsonb)
 returns boolean
 language plpgsql
+set search_path = public
 as $$
 begin
   -- Serialize concurrent seeds of the same wedding.

@@ -1,5 +1,6 @@
 import "server-only";
 import { DefaultFlag, Flagsmith } from "flagsmith-nodejs";
+import { db } from "./supabase";
 import { DEFAULT_POLICY, type CompilerPolicy } from "@/lib/compiler/types";
 
 /**
@@ -25,7 +26,11 @@ const SAFE_DEFAULTS: Record<string, { enabled: boolean; value: string | null }> 
   stage_guests: { enabled: false, value: null },
   stage_day_of: { enabled: false, value: null },
   stage_closeout: { enabled: false, value: null },
+  agent_enabled: { enabled: true, value: null },
+  agent_model: { enabled: true, value: "glm5.3-flash" },
 };
+
+const STRATEGIES: CompilerPolicy["strategy"][] = ["preserve_family_priorities", "minimize_changes", "lowest_confirmed_cost"];
 
 let client: Flagsmith | null = null;
 function flagsmith(): Flagsmith | null {
@@ -83,6 +88,7 @@ async function resolve(identity: string, traits: Record<string, string | boolean
   try {
     const raw = features.compiler_policy.value;
     if (raw) policy = { ...DEFAULT_POLICY, ...(JSON.parse(raw) as Partial<CompilerPolicy>) };
+    if (!STRATEGIES.includes(policy.strategy)) policy = DEFAULT_POLICY;
   } catch {
     /* malformed remote config: keep the default */
   }
@@ -106,4 +112,37 @@ export function flagsFor(t: ViewerTraits): Promise<ResolvedFlags> {
  */
 export function weddingFlags(weddingId: string, weddingStage: string): Promise<ResolvedFlags> {
   return resolve(`wedding:${weddingId}`, { wedding_stage: weddingStage });
+}
+
+/**
+ * Environment-wide switches (no identity): the operational kill switches that NudgeBee and the
+ * on-call person flip for everyone at once. Unreachable Flagsmith → the safe default.
+ */
+export async function killSwitch(name: "outbound_dialing_enabled" | "result_processing_paused"): Promise<boolean> {
+  const fs = flagsmith();
+  if (!fs) return SAFE_DEFAULTS[name].enabled;
+  try {
+    return (await fs.getEnvironmentFlags()).isFeatureEnabled(name);
+  } catch (e) {
+    console.error("flagsmith unavailable, using safe default for", name, e);
+    return SAFE_DEFAULTS[name].enabled;
+  }
+}
+
+/** Flags for a member row (wedding stage and household side are looked up). */
+export async function flagsForMember(me: { id: string; wedding_id: string; household_id: string | null; language: string; role: string; is_couple: boolean }) {
+  const s = db();
+  const [w, h] = await Promise.all([
+    s.from("weddings").select("stage").eq("id", me.wedding_id).single(),
+    s.from("households").select("side").eq("id", me.household_id).maybeSingle(),
+  ]);
+  return flagsFor({
+    weddingId: me.wedding_id,
+    memberId: me.id,
+    language: me.language,
+    householdSide: (h.data?.side ?? null) as "A" | "B" | null,
+    role: me.role,
+    isCouple: me.is_couple,
+    weddingStage: w.data?.stage ?? "brief",
+  });
 }

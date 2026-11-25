@@ -4,7 +4,7 @@ import { HttpError, logEvent, memberships } from "./weddings";
 import { compile, withConfirmedTimes } from "@/lib/compiler/compile";
 import { demoSangeet } from "@/lib/compiler/fixtures/demo-sangeet";
 import { weddingFlags, type ResolvedFlags } from "./flags";
-import { activityFromRow, activityToRow, canRecordFact, type ActivityRow, type FactInput } from "@/lib/plan-input";
+import { activityFromRow, activityToRow, typedFactRules, type ActivityRow, type FactInput } from "@/lib/plan-input";
 import { buildRecap, policyForRevision, revisionFingerprint, ttlCache, type ApproveInput, type Recap, type RespondInput, type Stance } from "@/lib/revisions";
 import type { Activity, CompileResult, CompilerPolicy, Fact, FactKind, Snapshot } from "@/lib/compiler/types";
 
@@ -133,7 +133,8 @@ export async function planView(tgUserId: number, weddingId?: string): Promise<Pl
     s.from("plan_revisions").select("id").eq("wedding_id", me.wedding_id).eq("revision", cur.revision).single(),
     s.from("households").select("id, side, name").eq("wedding_id", me.wedding_id),
     s.from("members").select("id, display_name").eq("wedding_id", me.wedding_id),
-    s.from("approvals").select("revision, proposal_id, approved_by, approved_at, recap").eq("wedding_id", me.wedding_id).order("approved_at", { ascending: false }).limit(1),
+    // Only revision-bound approvals (revision_id set); rows from the earlier flow have no recap.
+    s.from("approvals").select("snapshot_revision, proposal_id, approved_by, created_at, recap").eq("wedding_id", me.wedding_id).not("revision_id", "is", null).order("created_at", { ascending: false }).limit(1),
   ]);
   for (const r of [rev, hs, ms, ap]) if (r.error) throw r.error;
   const { data: rs, error: rErr } = await s
@@ -169,7 +170,7 @@ export async function planView(tgUserId: number, weddingId?: string): Promise<Pl
     policy: { version: cur.flags.policy.version, strategy: cur.flags.policy.strategy, source: cur.flags.source },
     responses,
     committed: last
-      ? { revision: last.revision, proposalId: last.proposal_id, approvedBy: nameOf(last.approved_by), approvedAt: last.approved_at, recap: last.recap as Recap }
+      ? { revision: last.snapshot_revision, proposalId: last.proposal_id, approvedBy: nameOf(last.approved_by), approvedAt: last.created_at, recap: last.recap as Recap }
       : null,
     canRespond: !!me.household_id,
     canApprove: !!me.is_couple,
@@ -242,7 +243,8 @@ export async function approveRevision(tgUserId: number, input: ApproveInput): Pr
  */
 export async function addFact(tgUserId: number, input: FactInput) {
   const me = await requireMember(tgUserId, input.weddingId);
-  if (!canRecordFact(me.is_couple, input.status)) throw new HttpError(403, "couple_only_confirmed");
+  // Vendor terms are never confirmed by hand and never replace a call or a quote (see typedFactRules).
+  const { status, replaceOnlyTyped } = typedFactRules(input.kind, input.status);
   const s = db();
   // The function must exist in this wedding's plan: no facts for a function that has no activities.
   const { count, error: cErr } = await s
@@ -256,11 +258,12 @@ export async function addFact(tgUserId: number, input: FactInput) {
     p_kind: input.kind,
     p_function: input.functionKind,
     p_value: input.value,
-    p_status: input.status,
+    p_status: status,
     p_wording: input.wording,
+    p_replace_only_typed: replaceOnlyTyped,
   });
   if (error) throw error;
-  await logEvent(me.wedding_id, me.id, "fact_added", { kind: input.kind, value: input.value, status: input.status });
+  await logEvent(me.wedding_id, me.id, "fact_added", { kind: input.kind, value: input.value, status });
   return me.wedding_id;
 }
 
