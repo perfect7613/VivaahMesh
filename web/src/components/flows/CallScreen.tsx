@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { dict, type Lang } from "@/lib/i18n";
+import { tr, type Lang } from "@/lib/i18n";
 import { api, haptic, useBackButton, useMainButton } from "@/lib/client/telegram";
 import { FallbackButton } from "@/components/ui";
 import type { View } from "./types";
@@ -11,6 +11,7 @@ interface Preview {
   callerPrompt: string;
   dialingEnabled: boolean;
   configured: boolean;
+  rehearsal?: boolean;
   lastCall: { id: string; status: string; error: string | null; processed_at: string | null } | null;
 }
 
@@ -19,7 +20,7 @@ interface Preview {
  * (PRD user story 7). After authorizing, the screen follows the call until the answer lands.
  */
 export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; onClose: () => void }) {
-  const t = dict[lang];
+  const t = tr(lang);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [callId, setCallId] = useState<string | null>(null);
@@ -88,6 +89,11 @@ export function CallScreen({ view, lang, onClose }: { view: View; lang: Lang; on
 
         {preview ? (
           <>
+            {preview.rehearsal ? (
+              <p className="mb-4 rounded-2xl border border-dashed border-marigold/70 bg-marigold-soft px-4 py-3 text-[14px]">
+                🎭 Rehearsal: no phone will ring. A simulated venue answers through the same pipeline, and everything it adds is labelled as rehearsal.
+              </p>
+            ) : null}
             <dl className="overflow-hidden rounded-3xl border border-line bg-card">
               <Row label={t.callWho} value={preview.recipient ? `${preview.recipient.name} · ${preview.recipient.phone}` : t.callNotSetUp} />
               <Row label={t.callAsk} value={`“${preview.purpose}”`} border />

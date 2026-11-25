@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Lang } from "@/lib/i18n";
+import type { BaseLang as Lang } from "@/lib/i18n";
 import { HttpError } from "./weddings";
 
 const MAX_AUDIO_BYTES = 3 * 1024 * 1024;

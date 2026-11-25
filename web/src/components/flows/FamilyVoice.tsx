@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "@/lib/client/telegram";
 import { recordVoiceClip, type VoiceRecording } from "@/lib/client/voice-recording";
 import { requirementLabel, type FamilyRequirement, type FamilyRequirementKind } from "@/lib/family-plan";
-import type { Lang } from "@/lib/i18n";
+import { base, type Lang } from "@/lib/i18n";
 import { inputClass } from "@/components/ui";
 
 const text = {
@@ -69,7 +69,7 @@ function parsedValue(kind: FamilyRequirementKind, value: string) {
 }
 
 export function FamilyVoice({ weddingId, lang }: { weddingId: string; lang: Lang }) {
-  const t = text[lang];
+  const t = text[base(lang)];
   const [view, setView] = useState<VoiceView | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);

@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { approvedRecapText, type FamilyRequirement, type FamilyRequirementKind, type RecapActivity } from "@/lib/family-plan";
-import { pickLang } from "@/lib/i18n";
+import { base, pickLang } from "@/lib/i18n";
 import { flagsFor, type ViewerTraits } from "./flags";
 import { bulbulRecap, dictateClip } from "./sarvam-models";
 import { db } from "./supabase";
@@ -44,15 +44,15 @@ export async function familyRequirements(weddingId: string): Promise<FamilyRequi
 }
 
 async function approvedRecap(weddingId: string) {
-  const { data, error } = await db().from("approved_wedding_recaps").select("revision,activities")
-    .eq("wedding_id", weddingId).order("revision", { ascending: false }).limit(1).maybeSingle();
+  const { data, error } = await db().from("approvals").select("snapshot_revision,approved_activities")
+    .eq("wedding_id", weddingId).eq("function_kind", "sangeet").order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
-  if (!data || !Array.isArray(data.activities) || !data.activities.length) return null;
-  const activities = data.activities.filter((activity): activity is RecapActivity =>
+  if (!data || !Array.isArray(data.approved_activities) || !data.approved_activities.length) return null;
+  const activities = data.approved_activities.filter((activity): activity is RecapActivity =>
     !!activity && typeof activity.title === "string" && typeof activity.kind === "string"
     && typeof activity.functionKind === "string" && Number.isInteger(activity.start) && Number.isInteger(activity.end)
     && activity.start >= 0 && activity.end <= 1440 && activity.end > activity.start);
-  return activities.length === data.activities.length ? { revision: data.revision as number, activities } : null;
+  return activities.length === data.approved_activities.length ? { revision: data.snapshot_revision as number, activities } : null;
 }
 
 function preparedDinner(me: Member, traits: ViewerTraits) {
@@ -118,6 +118,10 @@ export async function publishFamilyRequirement(tgId: number, input: Record<strin
     }
     source = "dictate";
   }
+  const functionLookup = await db().from("functions").select("id")
+    .eq("wedding_id", me.wedding_id).eq("kind", functionKind).limit(1);
+  if (functionLookup.error) throw functionLookup.error;
+  if (!functionLookup.data?.length) throw new HttpError(404, "function_not_found");
   const scope = { wedding_id: me.wedding_id, function_kind: functionKind, kind: kind as FamilyRequirementKind };
   const next = {
     household_id: me.household_id, member_id: me.id, value_min: value, note, source,
@@ -139,7 +143,7 @@ export async function playFamilyRecap(tgId: number, weddingId: unknown, revision
   if (!flags.features.voice_recap_bulbul.enabled) throw new HttpError(403, "recap_disabled");
   const recap = await approvedRecap(me.wedding_id);
   if (!recap || recap.revision !== revision) throw new HttpError(409, "recap_revision_changed");
-  const language = pickLang(me.language);
+  const language = base(pickLang(me.language));
   const text = approvedRecapText(recap.activities, language);
   return { audio: await bulbulRecap(text, language), revision: recap.revision };
 }

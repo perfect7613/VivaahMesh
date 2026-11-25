@@ -1,4 +1,4 @@
-import type { Lang } from "./i18n";
+import { base, type Lang } from "./i18n";
 import type { Activity, Snapshot } from "./compiler/types";
 
 export type FamilyRequirementKind = "dinner_start" | "dance_duration";
@@ -17,7 +17,7 @@ export type FamilyRequirement = {
 export type RecapActivity = Pick<Activity, "kind" | "functionKind" | "title" | "start" | "end">;
 
 const LOCALE: Record<Lang, string> = { en: "en-IN", hi: "hi-IN", mr: "mr-IN" };
-const formatter = (lang: Lang) => new Intl.DateTimeFormat(LOCALE[lang], {
+const formatter = (lang: Lang) => new Intl.DateTimeFormat(LOCALE[base(lang)], {
   hour: "numeric", minute: "2-digit", timeZone: "UTC", hourCycle: "h12",
 });
 
@@ -28,10 +28,10 @@ export function planTime(minute: number, lang: Lang) {
 export function requirementLabel(row: FamilyRequirement, lang: Lang) {
   if (row.kind === "dinner_start") {
     const time = planTime(row.value, lang);
-    return { en: `Dinner starts at ${time}`, hi: `रात का खाना ${time} पर शुरू होगा`, mr: `जेवण ${time} वाजता सुरू होईल` }[lang];
+    return { en: `Dinner starts at ${time}`, hi: `रात का खाना ${time} पर शुरू होगा`, mr: `जेवण ${time} वाजता सुरू होईल` }[base(lang)];
   }
-  const value = new Intl.NumberFormat(LOCALE[lang]).format(row.value);
-  return { en: `Dance lasts ${value} minutes`, hi: `नृत्य ${value} मिनट का है`, mr: `नृत्याचा कालावधी ${value} मिनिटे` }[lang];
+  const value = new Intl.NumberFormat(LOCALE[base(lang)]).format(row.value);
+  return { en: `Dance lasts ${value} minutes`, hi: `नृत्य ${value} मिनट का है`, mr: `नृत्याचा कालावधी ${value} मिनिटे` }[base(lang)];
 }
 
 const ACTIVITY_LABELS: Record<Lang, Partial<Record<Activity["kind"], string>>> = {
@@ -42,10 +42,10 @@ const ACTIVITY_LABELS: Record<Lang, Partial<Record<Activity["kind"], string>>> =
 
 export function approvedRecapText(activities: RecapActivity[], lang: Lang) {
   return [...activities].sort((a, b) => a.start - b.start).map((activity) => {
-    const name = lang === "en" ? activity.title : ACTIVITY_LABELS[lang][activity.kind] ?? activity.title;
+    const name = lang === "en" ? activity.title : ACTIVITY_LABELS[base(lang)][activity.kind] ?? activity.title;
     const start = planTime(activity.start, lang);
     const end = planTime(activity.end, lang);
-    return { en: `${name}, from ${start} to ${end}.`, hi: `${name}, ${start} से ${end} तक।`, mr: `${name}, ${start} ते ${end}.` }[lang];
+    return { en: `${name}, from ${start} to ${end}.`, hi: `${name}, ${start} से ${end} तक।`, mr: `${name}, ${start} ते ${end}.` }[base(lang)];
   }).join(" ");
 }
 

@@ -1,9 +1,40 @@
-export type Lang = "en" | "hi" | "mr";
-export const LANGS: { code: Lang; label: string; hint: string }[] = [
+/** Hand-written UI languages. Every other Sarvam language is translated by GLM-5.3 and cached. */
+export type BaseLang = "en" | "hi" | "mr";
+/** Any language Sarvam supports (22 Indian languages + English), as a short code like "ta". */
+export type Lang = string;
+
+export const LANGS: { code: Lang; label: string; hint: string; rtl?: boolean }[] = [
   { code: "mr", label: "मराठी", hint: "Marathi" },
   { code: "hi", label: "हिन्दी", hint: "Hindi" },
   { code: "en", label: "English", hint: "English" },
+  { code: "bn", label: "বাংলা", hint: "Bengali" },
+  { code: "gu", label: "ગુજરાતી", hint: "Gujarati" },
+  { code: "ta", label: "தமிழ்", hint: "Tamil" },
+  { code: "te", label: "తెలుగు", hint: "Telugu" },
+  { code: "kn", label: "ಕನ್ನಡ", hint: "Kannada" },
+  { code: "ml", label: "മലയാളം", hint: "Malayalam" },
+  { code: "pa", label: "ਪੰਜਾਬੀ", hint: "Punjabi" },
+  { code: "od", label: "ଓଡ଼ିଆ", hint: "Odia" },
+  { code: "as", label: "অসমীয়া", hint: "Assamese" },
+  { code: "ur", label: "اردو", hint: "Urdu", rtl: true },
+  { code: "kok", label: "कोंकणी", hint: "Konkani" },
+  { code: "mai", label: "मैथिली", hint: "Maithili" },
+  { code: "ne", label: "नेपाली", hint: "Nepali" },
+  { code: "sa", label: "संस्कृतम्", hint: "Sanskrit" },
+  { code: "doi", label: "डोगरी", hint: "Dogri" },
+  { code: "brx", label: "बड़ो", hint: "Bodo" },
+  { code: "mni", label: "মৈতৈলোন্", hint: "Manipuri" },
+  { code: "sat", label: "ᱥᱟᱱᱛᱟᱲᱤ", hint: "Santali" },
+  { code: "ks", label: "کٲشُر", hint: "Kashmiri", rtl: true },
+  { code: "sd", label: "سنڌي", hint: "Sindhi", rtl: true },
 ];
+export const LANG_CODES = LANGS.map((l) => l.code);
+export const isBase = (l: string): l is BaseLang => l === "en" || l === "hi" || l === "mr";
+export const isRtl = (l: string) => !!LANGS.find((x) => x.code === l)?.rtl;
+/** Sarvam API language code, e.g. "ta" → "ta-IN". */
+export const sarvamCode = (l: string) => `${l}-IN`;
+/** For maps that only exist in the hand-written languages. */
+export const base = (l: string): BaseLang => (isBase(l) ? l : "en");
 
 const en = {
   chooseLanguage: "Which language feels like home?",
@@ -83,7 +114,7 @@ const en = {
   daysToGo: (n: number) => (n === 0 ? "Today!" : n === 1 ? "1 day to go" : `${n} days to go`),
   dateTbd: "Date to be decided",
   needsYou: "Needs you",
-  teamHandling: "The team is handling",
+  teamHandling: "Your planning agent",
   thePlan: "The plan",
   families: "Families",
   waitingToJoin: "Waiting to join",
@@ -118,6 +149,25 @@ const en = {
   callFailed: "The call didn't go through.",
   callStatusBlocked: "Not dialed: calls are switched off.",
   backToPlan: "Back to the plan",
+  customFunctionLabel: "Add your own",
+  customFunctionPlaceholder: "Tilak, Jaggo, Nikah, Grihapravesh…",
+  functionDetails: "Details",
+  functionDate: "Date",
+  functionTime: "Starts at",
+  functionVenue: "Venue",
+  functionNotes: "What should everyone know?",
+  functionNotesPlaceholder: "Dress code, rituals, who's hosting…",
+  save: "Save",
+  addFunction: "Add a function",
+  tapToAddDetails: "Tap to add date and venue",
+  moreLanguages: "More languages",
+  approveOption: "Approve this option",
+  approvedBy: (name: string) => `Approved by ${name}`,
+  approveStale: "The plan changed while you were looking. Here is the new version: please check it again.",
+  approveAlready: "This version of the plan is already approved.",
+  approvalOutdated: "The plan changed after the last approval, so it needs a fresh look.",
+  translating: "Translating the app…",
+  safeDefaults: "Flagsmith unreachable, using safe defaults",
   hello: (name: string) => `Namaste, ${name}`,
   channels: "Where you can send things",
   channelTelegram: "Message or voice note to @vivaah_bot",
@@ -218,7 +268,7 @@ const hi: Dict = {
   daysToGo: (n) => (n === 0 ? "आज!" : `${n} दिन बाक़ी`),
   dateTbd: "तारीख़ तय होनी है",
   needsYou: "आपकी ज़रूरत है",
-  teamHandling: "टीम संभाल रही है",
+  teamHandling: "आपका प्लानिंग एजेंट",
   thePlan: "योजना",
   families: "परिवार",
   waitingToJoin: "जुड़ना बाक़ी",
@@ -253,6 +303,25 @@ const hi: Dict = {
   callFailed: "कॉल नहीं लग पाया।",
   callStatusBlocked: "कॉल नहीं हुआ: कॉल बंद हैं।",
   backToPlan: "प्लान पर लौटें",
+  customFunctionLabel: "अपना कार्यक्रम जोड़ें",
+  customFunctionPlaceholder: "तिलक, जग्गो, निकाह, गृहप्रवेश…",
+  functionDetails: "विवरण",
+  functionDate: "तारीख",
+  functionTime: "शुरू होने का समय",
+  functionVenue: "जगह",
+  functionNotes: "सबको क्या पता होना चाहिए?",
+  functionNotesPlaceholder: "ड्रेस कोड, रस्में, कौन मेज़बान है…",
+  save: "सेव करें",
+  addFunction: "कार्यक्रम जोड़ें",
+  tapToAddDetails: "तारीख और जगह जोड़ने के लिए टैप करें",
+  moreLanguages: "और भाषाएँ",
+  approveOption: "यह विकल्प मंज़ूर करें",
+  approvedBy: (name) => `${name} ने मंज़ूर किया`,
+  approveStale: "आपके देखते-देखते प्लान बदल गया। नया रूप यह है: कृपया फिर से देखें।",
+  approveAlready: "प्लान का यह रूप पहले ही मंज़ूर है।",
+  approvalOutdated: "पिछली मंज़ूरी के बाद प्लान बदला है, इसे फिर से देखना होगा।",
+  translating: "ऐप का अनुवाद हो रहा है…",
+  safeDefaults: "Flagsmith उपलब्ध नहीं, सुरक्षित डिफ़ॉल्ट चालू",
   hello: (name) => `नमस्ते, ${name}`,
   channels: "कहाँ से भेज सकते हैं",
   channelTelegram: "@vivaah_bot को संदेश या वॉइस नोट",
@@ -347,7 +416,7 @@ const mr: Dict = {
   daysToGo: (n) => (n === 0 ? "आज!" : `${n} दिवस बाकी`),
   dateTbd: "तारीख ठरायची आहे",
   needsYou: "तुमची गरज आहे",
-  teamHandling: "टीम सांभाळतेय",
+  teamHandling: "तुमचा प्लॅनिंग एजंट",
   thePlan: "योजना",
   families: "कुटुंबं",
   waitingToJoin: "सामील व्हायचंय",
@@ -382,6 +451,25 @@ const mr: Dict = {
   callFailed: "कॉल लागला नाही.",
   callStatusBlocked: "कॉल झाला नाही: कॉल बंद आहेत.",
   backToPlan: "प्लॅनकडे परत",
+  customFunctionLabel: "स्वतःचा कार्यक्रम जोडा",
+  customFunctionPlaceholder: "टिळा, साखरपुडा, गृहप्रवेश, गोंधळ…",
+  functionDetails: "तपशील",
+  functionDate: "तारीख",
+  functionTime: "सुरुवात",
+  functionVenue: "ठिकाण",
+  functionNotes: "सगळ्यांना काय माहीत असायला हवं?",
+  functionNotesPlaceholder: "ड्रेस कोड, विधी, यजमान कोण…",
+  save: "सेव्ह करा",
+  addFunction: "कार्यक्रम जोडा",
+  tapToAddDetails: "तारीख आणि ठिकाण जोडण्यासाठी टॅप करा",
+  moreLanguages: "आणखी भाषा",
+  approveOption: "हा पर्याय मंजूर करा",
+  approvedBy: (name) => `${name} यांनी मंजूर केलं`,
+  approveStale: "तुम्ही पाहत असताना प्लॅन बदलला. नवा प्लॅन हा आहे: कृपया पुन्हा पाहा.",
+  approveAlready: "प्लॅनची ही आवृत्ती आधीच मंजूर आहे.",
+  approvalOutdated: "शेवटच्या मंजुरीनंतर प्लॅन बदलला आहे, तो पुन्हा पाहायला हवा.",
+  translating: "ॲपचं भाषांतर होत आहे…",
+  safeDefaults: "Flagsmith उपलब्ध नाही, सुरक्षित डीफॉल्ट वापरत आहोत",
   hello: (name) => `नमस्कार, ${name}`,
   channels: "कुठून पाठवू शकता",
   channelTelegram: "@vivaah_bot ला मेसेज किंवा व्हॉइस नोट",
@@ -422,16 +510,50 @@ const mr: Dict = {
   resolverRoles: { venue_owner: "हॉल मालक", videographer: "व्हिडिओग्राफर", makeup_artist: "मेकअप आर्टिस्ट", household: "कुटुंब", planner: "प्लॅनर" },
 };
 
-export const dict: Record<Lang, Dict> = { en: en as unknown as Dict, hi, mr };
+export const dict: Record<string, Dict> = { en: en as unknown as Dict, hi, mr };
 export type Strings = Dict;
 
+/** UI strings for any language: hand-written, or GLM-translated once registered; English until then. */
+export function tr(lang: string): Dict {
+  return dict[lang] ?? dict.en;
+}
+
+const TOKEN = (i: number) => `⟦${i}⟧`;
+type Serialized = Record<string, string | { $fn: string } | Record<string, string>>;
+
+/** English UI strings as plain data: functions become templates with ⟦0⟧, ⟦1⟧… placeholders. */
+export function serializeEnglish(): Serialized {
+  const out: Serialized = {};
+  for (const [k, v] of Object.entries(en)) {
+    if (typeof v === "function") out[k] = { $fn: (v as (...a: string[]) => string)(TOKEN(0), TOKEN(1), TOKEN(2)) };
+    else out[k] = v as string | Record<string, string>;
+  }
+  return out;
+}
+
+/** Turns a translated serialized dictionary back into a usable one and registers it. */
+export function registerDict(lang: string, data: Serialized) {
+  const d: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(en)) {
+    const t = data[k];
+    if (typeof v === "function") {
+      const tpl = t && typeof t === "object" && "$fn" in t ? String(t.$fn) : null;
+      d[k] = tpl ? (...a: unknown[]) => tpl.replace(/⟦(\d)⟧/g, (_, i) => String(a[Number(i)] ?? "")) : v;
+    } else if (v && typeof v === "object") {
+      d[k] = { ...(v as Record<string, string>), ...(t && typeof t === "object" && !("$fn" in t) ? (t as Record<string, string>) : {}) };
+    } else d[k] = typeof t === "string" && t ? t : v;
+  }
+  dict[lang] = d as unknown as Dict;
+}
+
 export function pickLang(code?: string | null): Lang {
-  if (code === "hi" || code === "mr") return code;
-  return "en";
+  const c = (code ?? "").toLowerCase().split(/[-_]/)[0];
+  if (c === "or") return "od";
+  return LANG_CODES.includes(c) ? c : "en";
 }
 
 /** Bot copy: short, warm, one action. */
-export const botCopy: Record<Lang, {
+export const botCopy: Record<BaseLang, {
   welcome: (name: string) => string; startCta: string;
   welcomeBack: (couple: string) => string; openCta: string;
   invited: (couple: string, family: string) => string; joinCta: string;
